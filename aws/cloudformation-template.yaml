@@ -1,6 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'AWS Infrastructure for Charles Schwab API Integration'
 
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: ami-05ac965fc0f5788ba  # Amazon Linux 2023 AMI
+    us-west-2:
+      AMI: ami-0c2d3e23b7b644f0b  # Amazon Linux 2023 AMI
+    eu-west-1:
+      AMI: ami-0c02fb55956c7d316  # Amazon Linux 2023 AMI
+    ap-southeast-1:
+      AMI: ami-0497a974f8d5dcef8  # Amazon Linux 2023 AMI
+    sa-east-1:
+      AMI: ami-0c820c196a818d66a  # Amazon Linux 2023 AMI (Brazil - São Paulo)
+    ap-south-1:
+      AMI: ami-0f58b397bc5c1f2e8  # Amazon Linux 2023 AMI
+    eu-central-1:
+      AMI: ami-0faab6bdbac9486fb  # Amazon Linux 2023 AMI
+
 Parameters:
   KeyPairName:
     Type: String
@@ -186,7 +203,7 @@ Resources:
   EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-05ac965fc0f5788ba  # Amazon Linux 2023 AMI (latest)
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
       VpcId: !Ref VPC
