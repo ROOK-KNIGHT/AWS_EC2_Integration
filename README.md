@@ -57,11 +57,11 @@ SCHWAB_APP_SECRET=your_schwab_app_secret_here
 SCHWAB_REDIRECT_URI=https://127.0.0.1
 
 # AWS Configuration (Choose your preferred region)
-AWS_REGION=sa-east-1  # Brazil - São Paulo
-# AWS_REGION=us-east-1  # US East (N. Virginia)
+AWS_REGION=us-east-1  # US East (N. Virginia)
 # AWS_REGION=us-west-2  # US West (Oregon)
 # AWS_REGION=eu-west-1  # Europe (Ireland)
 # AWS_REGION=ap-southeast-1  # Asia Pacific (Singapore)
+# AWS_REGION=sa-east-1  # Brazil - São Paulo
 
 ENVIRONMENT=production
 PORT=8080
@@ -81,14 +81,14 @@ aws configure
 Enter your:
 - AWS Access Key ID
 - AWS Secret Access Key
-- Default region (e.g., `sa-east-1` for Brazil)
+- Default region (e.g., `us-east-1` for US East)
 - Default output format (`json`)
 
 #### Option B: Environment Variables
 ```bash
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=sa-east-1
+export AWS_DEFAULT_REGION=us-east-1
 ```
 
 #### Option C: IAM Role (if running on EC2)
