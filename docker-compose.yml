@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  schwab-api:
+    build: .
+    container_name: schwab-api-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=production
+      - LOG_LEVEL=INFO
+      - PORT=8080
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./tokens:/app/tokens
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - schwab-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Redis for caching (uncomment if needed)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: schwab-redis
+  #   restart: unless-stopped
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - schwab-network
+  #   command: redis-server --appendonly yes
+
+  # Optional: PostgreSQL for data storage (uncomment if needed)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: schwab-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: schwab_trading
+  #     POSTGRES_USER: schwab_user
+  #     POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password}
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - schwab-network
+
+networks:
+  schwab-network:
+    driver: bridge
+
+volumes:
+  # redis_data:
+  # postgres_data:
+  logs:
+  data:
+  tokens:
