@@ -91,10 +91,25 @@ class HistoricalDataHandler:
                     }
                     for bar in data["candles"]
                 ]
+                
+                # Get previous close - try multiple approaches
+                previous_close = data.get("previousClose")
+                
+                # If previousClose is not available, use the close price of the first candle as fallback
+                if previous_close is None and candles:
+                    # Sort candles by datetime to get the earliest one
+                    sorted_candles = sorted(candles, key=lambda x: x["datetime"] if x["datetime"] else "")
+                    if sorted_candles:
+                        previous_close = sorted_candles[0].get("close")
+                
+                # Debug logging
+                print(f"DEBUG: Previous close for {symbol}: {previous_close}")
+                print(f"DEBUG: Raw API response keys: {list(data.keys())}")
+                
                 return {
                     "symbol": symbol,
                     "candles": candles,
-                    "previousClose": data.get("previousClose"),
+                    "previousClose": previous_close,
                     "previousCloseDate": self.convert_timestamp(data.get("previousCloseDate"))
                 }
             else:
@@ -176,6 +191,17 @@ class HistoricalDataHandler:
         except Exception as e:
             print(f"Error fetching top movers: {e}")
             return []
+
+    def _get_auth_headers(self):
+        """Get authentication headers for API requests"""
+        tokens = ensure_valid_tokens()
+        if not tokens:
+            raise Exception("No valid tokens available")
+        
+        return {
+            "Authorization": f"Bearer {tokens['access_token']}",
+            "Accept": "application/json"
+        }
 
     def get_quote(self, symbol: str) -> Dict[str, Any]:
         

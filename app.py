@@ -286,11 +286,30 @@ HTML_TEMPLATE = """
                     if (data.error) {
                         dataDiv.innerHTML = `<div class="status error">Error: ${data.error}</div>`;
                     } else {
+                        // Get the latest candle for current price
+                        const latestCandle = data.candles && data.candles.length > 0 ? 
+                            data.candles[data.candles.length - 1] : null;
+                        
+                        const currentPrice = latestCandle ? latestCandle.close : 'N/A';
+                        const previousClose = data.previousClose || (latestCandle ? latestCandle.open : 'N/A');
+                        
+                        // Calculate change if we have both values
+                        let changeInfo = '';
+                        if (currentPrice !== 'N/A' && previousClose !== 'N/A' && 
+                            typeof currentPrice === 'number' && typeof previousClose === 'number') {
+                            const change = currentPrice - previousClose;
+                            const changePercent = ((change / previousClose) * 100).toFixed(2);
+                            const changeColor = change >= 0 ? 'green' : 'red';
+                            changeInfo = `<br>Change: <span style="color: ${changeColor}">$${change.toFixed(2)} (${changePercent}%)</span>`;
+                        }
+                        
                         dataDiv.innerHTML = `
                             <div class="status success">
                                 <strong>Historical Data for ${data.symbol}</strong><br>
                                 Records: ${data.candles?.length || 0}<br>
-                                Previous Close: $${data.previousClose || 'N/A'}
+                                Current Price: $${typeof currentPrice === 'number' ? currentPrice.toFixed(2) : currentPrice}<br>
+                                Previous Close: $${typeof previousClose === 'number' ? previousClose.toFixed(2) : previousClose}${changeInfo}
+                                ${data.previousCloseDate ? `<br>Previous Close Date: ${data.previousCloseDate}` : ''}
                             </div>
                         `;
                     }
