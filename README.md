@@ -116,28 +116,11 @@ The deployment script will:
 - Create the CloudFormation stack
 - Set up EC2 instance with proper security groups
 - Configure AWS Secrets Manager for secure credential storage
+- **Automatically upload your Schwab API credentials from .env to AWS Secrets Manager**
 - Install Docker and required dependencies
 - Output the public IP address for access
 
-### 5. Configure Schwab API Credentials in AWS
-
-After deployment, update the AWS Secrets Manager with your actual Schwab API credentials:
-
-```bash
-# Get the secret ARN from CloudFormation outputs
-aws cloudformation describe-stacks --stack-name schwab-api-stack --query 'Stacks[0].Outputs[?OutputKey==`SecretArn`].OutputValue' --output text
-
-# Update the secret with your actual credentials
-aws secretsmanager update-secret \
-  --secret-id "production/schwab-api/credentials" \
-  --secret-string '{
-    "SCHWAB_APP_KEY": "your_actual_app_key",
-    "SCHWAB_APP_SECRET": "your_actual_app_secret",
-    "SCHWAB_REDIRECT_URI": "https://127.0.0.1"
-  }'
-```
-
-### 6. Deploy Application Code
+### 5. Deploy Application Code
 
 ```bash
 # SSH into your EC2 instance
@@ -151,7 +134,7 @@ cd AWS_EC2_Integration
 docker-compose up -d
 ```
 
-### 7. Access the Application
+### 6. Access the Application
 
 Open your browser and navigate to:
 ```
