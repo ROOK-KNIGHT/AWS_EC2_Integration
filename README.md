@@ -220,7 +220,7 @@ The application provides the following REST API endpoints:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `KeyPairName` | EC2 Key Pair name | `schwab-api-keypair` |
-| `InstanceType` | EC2 instance type | `t3.micro` |
+| `InstanceType` | EC2 instance type | `t3.small` |
 | `Environment` | Environment name | `production` |
 
 ## 🐳 Docker Deployment

@@ -162,6 +162,25 @@ HTML_TEMPLATE = """
                 </div>
                 <div id="callback-result"></div>
             </div>
+            
+            <div style="margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff3cd;">
+                <h4>Manual Token Entry</h4>
+                <p><small>If you already have saved Schwab API tokens, you can enter them directly here:</small></p>
+                <div class="form-group">
+                    <label>Access Token:</label>
+                    <input type="text" id="access-token" placeholder="Enter your access token" style="width: 100%; margin-bottom: 10px;">
+                </div>
+                <div class="form-group">
+                    <label>Refresh Token:</label>
+                    <input type="text" id="refresh-token" placeholder="Enter your refresh token" style="width: 100%; margin-bottom: 10px;">
+                </div>
+                <div class="form-group">
+                    <label>Expires At:</label>
+                    <input type="datetime-local" id="expires-at" style="width: 100%; margin-bottom: 10px;">
+                </div>
+                <button onclick="uploadTokens()">Upload Tokens</button>
+                <div id="token-upload-result"></div>
+            </div>
         </div>
         
         <div class="section">
@@ -474,6 +493,58 @@ HTML_TEMPLATE = """
             }
         }
 
+        function uploadTokens() {
+            const accessToken = document.getElementById('access-token').value.trim();
+            const refreshToken = document.getElementById('refresh-token').value.trim();
+            const expiresAt = document.getElementById('expires-at').value;
+            const resultDiv = document.getElementById('token-upload-result');
+            
+            if (!accessToken || !refreshToken || !expiresAt) {
+                resultDiv.innerHTML = '<div class="status error">Please fill in all token fields</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="status info">Uploading tokens...</div>';
+            
+            // Convert datetime-local to ISO string
+            const expiresAtISO = new Date(expiresAt).toISOString();
+            
+            fetch('/api/auth/upload-tokens', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    access_token: accessToken,
+                    refresh_token: refreshToken,
+                    expires_at: expiresAtISO
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    resultDiv.innerHTML = `
+                        <div class="status success">
+                            <strong>Tokens Uploaded Successfully!</strong><br>
+                            ${data.message}<br>
+                            Expires: ${new Date(data.expires_at).toLocaleString()}
+                        </div>
+                    `;
+                    // Clear the input fields
+                    document.getElementById('access-token').value = '';
+                    document.getElementById('refresh-token').value = '';
+                    document.getElementById('expires-at').value = '';
+                    // Refresh auth status
+                    checkAuthStatus();
+                } else {
+                    resultDiv.innerHTML = `<div class="status error">Token Upload Failed: ${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<div class="status error">Error: ${error}</div>`;
+            });
+        }
+
         // Check status and auth status on page load
         checkStatus();
         checkAuthStatus();
@@ -692,6 +763,59 @@ def auth_status():
             
     except Exception as e:
         logger.error(f"Error checking auth status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/upload-tokens', methods=['POST'])
+def upload_tokens():
+    """Handle manual token upload"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        access_token = data.get('access_token', '').strip()
+        refresh_token = data.get('refresh_token', '').strip()
+        expires_at = data.get('expires_at', '').strip()
+        
+        if not access_token or not refresh_token or not expires_at:
+            return jsonify({'error': 'Missing required fields: access_token, refresh_token, expires_at'}), 400
+        
+        # Validate the expires_at format
+        try:
+            from datetime import datetime
+            expires_datetime = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            
+            # Check if the token is already expired
+            if expires_datetime <= datetime.now():
+                return jsonify({'error': 'Token expiration time is in the past'}), 400
+                
+        except ValueError as e:
+            return jsonify({'error': f'Invalid expires_at format: {str(e)}'}), 400
+        
+        # Import here to avoid circular imports
+        from connection_manager import save_tokens
+        
+        # Create token dictionary
+        tokens = {
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'expires_at': expires_at,
+            'token_type': 'Bearer'
+        }
+        
+        # Save the tokens
+        if save_tokens(tokens):
+            logger.info("Manual tokens uploaded successfully")
+            return jsonify({
+                'status': 'success',
+                'message': 'Tokens uploaded and saved successfully! You can now use the API.',
+                'expires_at': expires_at
+            })
+        else:
+            return jsonify({'error': 'Failed to save tokens'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error uploading tokens: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)

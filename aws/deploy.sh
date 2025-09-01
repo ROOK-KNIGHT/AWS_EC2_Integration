@@ -9,7 +9,7 @@ set -e  # Exit on any error
 STACK_NAME="schwab-api-stack"
 TEMPLATE_FILE="aws/cloudformation-template.yaml"
 KEY_PAIR_NAME="schwab-api-keypair"
-INSTANCE_TYPE="t3.micro"
+INSTANCE_TYPE="t3.small"
 ENVIRONMENT="production"
 REGION="us-east-1"
 
@@ -171,14 +171,16 @@ update_secrets() {
         # Read values from .env file
         SCHWAB_APP_KEY=$(grep SCHWAB_APP_KEY .env | cut -d '=' -f2 | tr -d '"')
         SCHWAB_APP_SECRET=$(grep SCHWAB_APP_SECRET .env | cut -d '=' -f2 | tr -d '"')
-        SCHWAB_REDIRECT_URI=$(grep SCHWAB_REDIRECT_URI .env | cut -d '=' -f2 | tr -d '"')
+        
+        # Use the EC2 public IP for the callback URI
+        CALLBACK_URI="https://${PUBLIC_IP}:8080/callback"
         
         if [ -n "$SCHWAB_APP_KEY" ] && [ -n "$SCHWAB_APP_SECRET" ]; then
             SECRET_VALUE=$(cat <<EOF
 {
   "SCHWAB_APP_KEY": "$SCHWAB_APP_KEY",
   "SCHWAB_APP_SECRET": "$SCHWAB_APP_SECRET",
-  "SCHWAB_REDIRECT_URI": "$SCHWAB_REDIRECT_URI"
+  "SCHWAB_REDIRECT_URI": "$CALLBACK_URI"
 }
 EOF
 )
@@ -189,6 +191,7 @@ EOF
                 --region "$REGION"
             
             print_success "Secrets Manager updated with your API credentials"
+            print_success "Callback URI set to: $CALLBACK_URI"
         else
             print_warning "Could not find valid credentials in .env file"
         fi
@@ -231,7 +234,7 @@ main() {
                 echo "Options:"
                 echo "  --stack-name NAME       CloudFormation stack name (default: schwab-api-stack)"
                 echo "  --key-pair NAME         EC2 key pair name (default: schwab-api-keypair)"
-                echo "  --instance-type TYPE    EC2 instance type (default: t3.micro)"
+                echo "  --instance-type TYPE    EC2 instance type (default: t3.small)"
                 echo "  --environment ENV       Environment name (default: production)"
                 echo "  --region REGION         AWS region (default: us-east-1)"
                 echo "  --help                  Show this help message"
