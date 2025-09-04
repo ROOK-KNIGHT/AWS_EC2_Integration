@@ -40,7 +40,7 @@ print_error() {
 # Function to collect Schwab API credentials
 collect_schwab_credentials() {
     echo ""
-    print_status "Collecting Charles Schwab API credentials..."
+    print_status "Collecting Charles Schwab API credentials and configuration..."
     echo ""
     echo "You'll need your Schwab API credentials from https://developer.schwab.com/"
     echo "If you don't have them yet, you can:"
@@ -67,19 +67,37 @@ collect_schwab_credentials() {
         fi
     done
     
-    print_success "Schwab API credentials collected successfully"
+    # Prompt for Callback URL
+    echo ""
+    echo "Enter your preferred callback URL for OAuth redirects."
+    echo "Common options:"
+    echo "  - https://127.0.0.1 (localhost)"
+    echo "  - https://localhost"
+    echo "  - Your custom domain (must match what's configured in your Schwab app)"
+    echo ""
+    while [[ -z "$SCHWAB_CALLBACK_URL" ]]; do
+        echo -n "Enter your Schwab Callback URL [default: https://127.0.0.1]: "
+        read SCHWAB_CALLBACK_URL
+        if [[ -z "$SCHWAB_CALLBACK_URL" ]]; then
+            SCHWAB_CALLBACK_URL="https://127.0.0.1"
+            print_status "Using default callback URL: https://127.0.0.1"
+        fi
+    done
+    
+    print_success "Schwab API credentials and configuration collected successfully"
     echo ""
 }
 
 # Function to update secrets manager with real credentials
 update_secrets_manager() {
-    print_status "Updating Secrets Manager with your Schwab API credentials..."
+    print_status "Updating Secrets Manager with your Schwab API credentials and configuration..."
     
-    # Create the JSON payload with real credentials
+    # Create the JSON payload with real credentials and configuration
     SECRET_VALUE=$(cat <<EOF
 {
   "client_id": "$SCHWAB_CLIENT_ID",
-  "client_secret": "$SCHWAB_CLIENT_SECRET"
+  "client_secret": "$SCHWAB_CLIENT_SECRET",
+  "callback_url": "$SCHWAB_CALLBACK_URL"
 }
 EOF
 )
@@ -90,7 +108,7 @@ EOF
         --secret-string "$SECRET_VALUE" \
         --region "$REGION" > /dev/null
     
-    print_success "Secrets Manager updated with your API credentials"
+    print_success "Secrets Manager updated with your API credentials and configuration"
 }
 
 # Function to check if AWS CLI is installed and configured
