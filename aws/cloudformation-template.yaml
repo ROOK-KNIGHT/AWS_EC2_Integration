@@ -202,9 +202,8 @@ Resources:
       Description: Charles Schwab API credentials
       SecretString: !Sub |
         {
-          "SCHWAB_APP_KEY": "REPLACE_WITH_YOUR_APP_KEY",
-          "SCHWAB_APP_SECRET": "REPLACE_WITH_YOUR_APP_SECRET",
-          "SCHWAB_REDIRECT_URI": "https://127.0.0.1"
+          "client_id": "REPLACE_WITH_YOUR_CLIENT_ID",
+          "client_secret": "REPLACE_WITH_YOUR_CLIENT_SECRET"
         }
 
   # EC2 Instance
