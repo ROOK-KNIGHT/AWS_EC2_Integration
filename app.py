@@ -671,9 +671,10 @@ def api_order():
 def start_auth():
     """Start the authentication process"""
     try:
-        from connection_manager import AUTH_URL
+        from connection_manager import get_auth_url
+        auth_url = get_auth_url()
         return jsonify({
-            'auth_url': AUTH_URL,
+            'auth_url': auth_url,
             'message': 'Visit this URL to authenticate with Charles Schwab',
             'instructions': 'After authentication, you will be redirected back to this server'
         })

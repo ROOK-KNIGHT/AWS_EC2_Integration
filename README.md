@@ -1,296 +1,215 @@
-# Charles Schwab API Integration with AWS EC2
+# Charles Schwab API Integration on AWS EC2
 
-This project provides a complete solution for integrating with the Charles Schwab API and deploying it on AWS EC2. It includes a web interface for trading operations, historical data retrieval, and account management.
+A complete Flask web application for Charles Schwab API integration, deployed automatically on AWS EC2 with one command.
 
-## 🚀 Features
+## 🚀 Quick Start
 
-- **Charles Schwab API Integration**: Complete OAuth authentication with token management
-- **Trading Operations**: Place market orders, limit orders, and view positions
-- **Historical Data**: Fetch and analyze historical stock data
-- **Account Management**: View positions, balances, and account details
-- **Web Interface**: User-friendly web dashboard for all operations
-- **AWS Integration**: Secure deployment on EC2 with Secrets Manager integration
-- **Multi-Region Support**: Deploy in US, Europe, Asia-Pacific, or Brazil regions
-- **Docker Support**: Containerized deployment option
-- **Monitoring**: Built-in health checks and logging
+Deploy the entire application to AWS EC2 with a single command:
+
+```bash
+git clone https://github.com/ROOK-KNIGHT/AWS_EC2_Integration.git && cd AWS_EC2_Integration && ./aws/deploy.sh
+```
+
+That's it! The script will:
+- Deploy AWS infrastructure (EC2, IAM, Secrets Manager)
+- Upload and configure the application
+- Start the web service
+- Provide you with the application URL
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have:
+Before running the deployment, ensure you have:
 
-1. **Charles Schwab Developer Account**
-   - App Key and App Secret from [Schwab Developer Portal](https://developer.schwab.com/)
-   - Approved application for trading access
+1. **AWS CLI installed and configured**
+   ```bash
+   aws configure
+   ```
+   You'll need:
+   - AWS Access Key ID
+   - AWS Secret Access Key
+   - Default region (recommend: `us-east-1`)
 
-2. **AWS Account**
-   - AWS CLI installed and configured
-   - Appropriate IAM permissions for EC2, CloudFormation, and Secrets Manager
+2. **Required AWS permissions** for your IAM user:
+   - EC2 (create instances, key pairs, security groups)
+   - CloudFormation (create/update stacks)
+   - IAM (create roles and policies)
+   - Secrets Manager (create/manage secrets)
 
-3. **Local Development Environment**
-   - Python 3.9+ installed
-   - Git installed
-   - SSH client
+3. **Charles Schwab Developer Account**
+   - Register at [Charles Schwab Developer Portal](https://developer.schwab.com/)
+   - Create an app to get your Client ID and Client Secret
 
-## 🛠️ Quick Start
+## 🏗️ What Gets Deployed
 
-### 1. Clone the Repository
+The deployment script creates:
 
+### AWS Infrastructure
+- **EC2 Instance** (t3.small) running Amazon Linux 2023
+- **Security Group** allowing HTTP (port 8080) and SSH access
+- **IAM Role** with permissions for Secrets Manager
+- **Secrets Manager Secret** for storing API credentials
+- **SSH Key Pair** for secure instance access
+
+### Application Stack
+- **Flask Web Application** with comprehensive UI
+- **Python Dependencies** automatically installed
+- **Systemd Service** for automatic startup and management
+- **Health Monitoring** and verification
+
+## 🌐 Application Features
+
+Once deployed, your application includes:
+
+- **OAuth 2.0 Authentication** with Charles Schwab
+- **Account Information** viewing
+- **Portfolio Positions** display
+- **Historical Data** retrieval
+- **Order Placement** interface
+- **Automatic Token Management** with refresh
+- **Secure Credential Storage** via AWS Secrets Manager
+
+## 📖 Usage Instructions
+
+### 1. Deploy the Application
 ```bash
-git clone https://github.com/ROOK-KNIGHT/AWS_EC2_Integration.git
-cd AWS_EC2_Integration
-```
-
-### 2. Configure Environment Variables
-
-Copy the example environment file and fill in your credentials:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your actual values:
-
-```bash
-# Charles Schwab API Configuration
-SCHWAB_APP_KEY=your_schwab_app_key_here
-SCHWAB_APP_SECRET=your_schwab_app_secret_here
-SCHWAB_REDIRECT_URI=https://127.0.0.1
-
-# AWS Configuration (Choose your preferred region)
-AWS_REGION=us-east-1  # US East (N. Virginia)
-# AWS_REGION=us-west-2  # US West (Oregon)
-# AWS_REGION=eu-west-1  # Europe (Ireland)
-# AWS_REGION=ap-southeast-1  # Asia Pacific (Singapore)
-# AWS_REGION=sa-east-1  # Brazil - São Paulo
-
-ENVIRONMENT=production
-PORT=8080
-APP_ENV=production
-LOG_LEVEL=INFO
-SECRET_KEY=your_flask_secret_key_here
-```
-
-### 3. AWS Credentials Setup
-
-You need to configure AWS credentials for deployment. Choose one of these methods:
-
-#### Option A: AWS CLI Configuration (Recommended)
-```bash
-aws configure
-```
-Enter your:
-- AWS Access Key ID
-- AWS Secret Access Key
-- Default region (e.g., `us-east-1` for US East)
-- Default output format (`json`)
-
-#### Option B: Environment Variables
-```bash
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
-```
-
-#### Option C: IAM Role (if running on EC2)
-If deploying from an EC2 instance, attach an IAM role with the necessary permissions.
-
-### 4. Deploy to AWS
-
-#### Create SSH Key Pair
-```bash
-# Create a new key pair for EC2 access
-aws ec2 create-key-pair --key-name schwab-api-keypair --query 'KeyMaterial' --output text > schwab-api-keypair.pem
-chmod 400 schwab-api-keypair.pem
-```
-
-#### Deploy Infrastructure
-```bash
-# Make deployment script executable
-chmod +x aws/deploy.sh
-
-# Deploy the CloudFormation stack
 ./aws/deploy.sh
 ```
 
-The deployment script will:
-- Create the CloudFormation stack
-- Set up EC2 instance with proper security groups
-- Configure AWS Secrets Manager for secure credential storage
-- **Automatically upload your Schwab API credentials from .env to AWS Secrets Manager**
-- Install Docker and required dependencies
-- Output the public IP address for access
+### 2. Configure API Credentials
+After deployment, you'll need to add your Schwab API credentials:
 
-### 5. Deploy Application Code
+1. Go to AWS Secrets Manager in the console
+2. Find the secret named `production/schwab-api/credentials`
+3. Update it with your credentials:
+   ```json
+   {
+     "client_id": "your_schwab_client_id",
+     "client_secret": "your_schwab_client_secret"
+   }
+   ```
+
+### 3. Access Your Application
+Open the provided URL in your browser (e.g., `http://3.95.18.79:8080`) and:
+1. Click "Authenticate with Charles Schwab"
+2. Complete the OAuth flow
+3. Start using the trading interface
+
+## 🔧 Management Commands
+
+### Check Application Status
+```bash
+ssh -i schwab-api-keypair.pem ec2-user@[YOUR_IP]
+sudo systemctl status schwab-api
+```
+
+### View Application Logs
+```bash
+sudo journalctl -u schwab-api -f
+```
+
+### Restart Application
+```bash
+sudo systemctl restart schwab-api
+```
+
+## 🛠️ Customization Options
+
+The deployment script supports several options:
 
 ```bash
-# SSH into your EC2 instance
-ssh -i schwab-api-keypair.pem ec2-user@YOUR_EC2_PUBLIC_IP
+./aws/deploy.sh [OPTIONS]
 
-# Clone the repository on EC2
-git clone https://github.com/ROOK-KNIGHT/AWS_EC2_Integration.git
-cd AWS_EC2_Integration
-
-# Deploy using Docker Compose
-docker-compose up -d
+Options:
+  --stack-name NAME       CloudFormation stack name (default: schwab-api-stack)
+  --key-pair NAME         EC2 key pair name (default: schwab-api-keypair)
+  --instance-type TYPE    EC2 instance type (default: t3.small)
+  --environment ENV       Environment name (default: production)
+  --region REGION         AWS region (default: us-east-1)
+  --help                  Show help message
 ```
 
-### 6. Access the Application
-
-Open your browser and navigate to:
-```
-http://YOUR_EC2_PUBLIC_IP:8080
-```
-
-## 🌍 Supported AWS Regions
-
-The application supports deployment in the following regions:
-
-| Region Code | Region Name | Location |
-|-------------|-------------|----------|
-| `us-east-1` | US East (N. Virginia) | United States |
-| `us-west-2` | US West (Oregon) | United States |
-| `eu-west-1` | Europe (Ireland) | Europe |
-| `ap-southeast-1` | Asia Pacific (Singapore) | Asia |
-| `sa-east-1` | South America (São Paulo) | **Brazil** |
-| `ap-south-1` | Asia Pacific (Mumbai) | India |
-| `eu-central-1` | Europe (Frankfurt) | Germany |
-
-To deploy in Brazil, set `AWS_REGION=sa-east-1` in your `.env` file.
-
-## 🔐 Security Configuration
-
-### Environment Variables Protection
-- `.env` file is gitignored to prevent credential exposure
-- Use `.env.example` as a template for required variables
-- Never commit actual API keys or secrets to version control
-
-### AWS Secrets Manager
-- API credentials are stored securely in AWS Secrets Manager
-- EC2 instance has IAM role-based access to secrets
-- Tokens are encrypted at rest and in transit
-
-### Network Security
-- Security groups restrict access to necessary ports only
-- HTTPS endpoints for secure communication
-- SSH access requires key pair authentication
-
-## 🚀 Local Development
-
-For local development without AWS deployment:
-
+Example with custom options:
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Run the application locally
-python3 app.py
+./aws/deploy.sh --instance-type t3.medium --region us-west-2 --environment staging
 ```
 
-Access the local application at `http://localhost:8080`
+## 📁 Project Structure
 
-## 📊 API Endpoints
-
-The application provides the following REST API endpoints:
-
-- `GET /` - Web interface
-- `GET /api/status` - System health check
-- `GET /api/auth/status` - Authentication status
-- `POST /api/auth/start` - Start OAuth flow
-- `POST /api/auth/callback` - Handle OAuth callback
-- `GET /api/positions` - Get current positions
-- `GET /api/historical/{symbol}` - Get historical data
-- `POST /api/order` - Place trading orders
-
-## 🔧 Configuration Options
-
-### Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `SCHWAB_APP_KEY` | Schwab API App Key | - | Yes |
-| `SCHWAB_APP_SECRET` | Schwab API App Secret | - | Yes |
-| `SCHWAB_REDIRECT_URI` | OAuth redirect URI | `https://127.0.0.1` | No |
-| `AWS_REGION` | AWS deployment region | `sa-east-1` | No |
-| `ENVIRONMENT` | Environment name | `production` | No |
-| `PORT` | Application port | `8080` | No |
-| `LOG_LEVEL` | Logging level | `INFO` | No |
-
-### CloudFormation Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `KeyPairName` | EC2 Key Pair name | `schwab-api-keypair` |
-| `InstanceType` | EC2 instance type | `t3.small` |
-| `Environment` | Environment name | `production` |
-
-## 🐳 Docker Deployment
-
-Alternative deployment using Docker:
-
-```bash
-# Build and run with Docker Compose
-docker-compose up -d
-
-# Or build manually
-docker build -t schwab-api .
-docker run -p 8080:8080 --env-file .env schwab-api
+```
+AWS_EC2_Integration/
+├── app.py                          # Main Flask application
+├── requirements.txt                # Python dependencies
+├── aws/
+│   ├── deploy.sh                   # Complete deployment script
+│   └── cloudformation-template.yaml # AWS infrastructure template
+├── handlers/
+│   ├── connection_manager.py       # API connection management
+│   ├── fetch_data.py              # Data retrieval functions
+│   ├── historical_data_handler.py # Historical data processing
+│   └── order_handler.py           # Order placement logic
+└── README.md                      # This file
 ```
 
-## 📝 Troubleshooting
+## 🔒 Security Features
+
+- **IMDSv2 Support** for secure EC2 metadata access
+- **AWS Secrets Manager** for credential storage
+- **IAM Roles** with least-privilege permissions
+- **Security Groups** with minimal required access
+- **HTTPS Redirect URIs** for OAuth flow
+
+## 🚨 Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Failures**
-   - Verify Schwab API credentials in AWS Secrets Manager
-   - Check that redirect URI matches your configuration
-   - Ensure your Schwab developer application is approved
-
-2. **AWS Deployment Issues**
-   - Verify AWS credentials are configured correctly
-   - Check IAM permissions for CloudFormation, EC2, and Secrets Manager
-   - Ensure the selected region supports all required services
-
-3. **Connection Issues**
-   - Verify security group allows inbound traffic on port 8080
-   - Check that EC2 instance has a public IP address
-   - Ensure the application is running on the EC2 instance
-
-### Logs and Monitoring
-
+**1. AWS CLI not configured**
 ```bash
-# Check application logs on EC2
-sudo journalctl -u schwab-api -f
-
-# Check Docker logs
-docker-compose logs -f
-
-# Check CloudWatch logs in AWS Console
-# Navigate to CloudWatch > Log Groups > /aws/ec2/production-schwab-api
+aws configure
 ```
+
+**2. Insufficient AWS permissions**
+- Ensure your IAM user has the required permissions listed above
+
+**3. Application not starting**
+```bash
+ssh -i schwab-api-keypair.pem ec2-user@[YOUR_IP]
+sudo journalctl -u schwab-api --no-pager -n 50
+```
+
+**4. OAuth redirect issues**
+- Ensure your Schwab app's redirect URI is set to `https://127.0.0.1`
+
+### Getting Help
+
+1. Check the application logs on the EC2 instance
+2. Verify your Schwab API credentials in Secrets Manager
+3. Ensure your Schwab developer app is properly configured
+
+## 💰 Cost Estimation
+
+Running this application on AWS typically costs:
+- **EC2 t3.small**: ~$15-20/month
+- **Secrets Manager**: ~$0.40/month
+- **Data transfer**: Minimal for typical usage
+
+Total estimated cost: **~$16-21/month**
+
+## 🔄 Updates and Maintenance
+
+To update the application:
+1. Pull the latest changes: `git pull origin main`
+2. Re-run the deployment: `./aws/deploy.sh`
+
+The script will update the existing infrastructure and application code.
+
+## 📜 License
+
+This project is open source and available under the MIT License.
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## ⚠️ Disclaimer
-
-This software is for educational and development purposes. Always test thoroughly in a sandbox environment before using with real trading accounts. The authors are not responsible for any financial losses incurred through the use of this software.
-
-## 📞 Support
-
-For issues and questions:
-- Create an issue on GitHub
-- Check the troubleshooting section above
-- Review Schwab API documentation at https://developer.schwab.com/
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-**Happy Trading! 📈**
+**Ready to start trading with Charles Schwab on AWS? Run the deployment command and you'll be up and running in minutes!**

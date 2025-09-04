@@ -20,15 +20,61 @@ def is_running_on_ec2():
     """Check if we're running on EC2 by trying to get instance metadata"""
     try:
         import requests
+        # Try IMDSv2 first (with token)
+        try:
+            token_response = requests.put(
+                'http://169.254.169.254/latest/api/token',
+                headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'},
+                timeout=2
+            )
+            if token_response.status_code == 200:
+                token = token_response.text
+                response = requests.get(
+                    'http://169.254.169.254/latest/meta-data/instance-id',
+                    headers={'X-aws-ec2-metadata-token': token},
+                    timeout=2
+                )
+                return response.status_code == 200
+        except:
+            pass
+        
+        # Fallback to IMDSv1
         response = requests.get('http://169.254.169.254/latest/meta-data/instance-id', timeout=2)
         return response.status_code == 200
     except:
+        return False
+
+# Load secrets from AWS Secrets Manager if on EC2
+def load_secrets_from_aws():
+    """Load secrets from AWS Secrets Manager and set environment variables"""
+    try:
+        session = boto3.session.Session()
+        client = session.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'us-east-1'))
+        
+        secret_name = f"{os.getenv('ENVIRONMENT', 'production')}/schwab-api/credentials"
+        
+        response = client.get_secret_value(SecretId=secret_name)
+        secret = json.loads(response['SecretString'])
+        
+        # Set environment variables from secrets
+        os.environ['SCHWAB_APP_KEY'] = secret['SCHWAB_APP_KEY']
+        os.environ['SCHWAB_APP_SECRET'] = secret['SCHWAB_APP_SECRET']
+        os.environ['SCHWAB_REDIRECT_URI'] = secret.get('SCHWAB_REDIRECT_URI', 'https://127.0.0.1')
+        
+        print("Successfully loaded secrets from AWS Secrets Manager")
+        return True
+    except Exception as e:
+        print(f"Error loading secrets from AWS: {e}")
         return False
 
 # Load API credentials from environment variables
 def load_api_keys():
     """Load API keys from environment variables"""
     try:
+        # If running on EC2 and no env vars set, try to load from AWS Secrets Manager
+        if is_running_on_ec2() and not os.getenv('SCHWAB_APP_KEY'):
+            load_secrets_from_aws()
+        
         app_key = os.getenv('SCHWAB_APP_KEY')
         app_secret = os.getenv('SCHWAB_APP_SECRET')
         
@@ -40,26 +86,36 @@ def load_api_keys():
         print(f"Error loading API keys from environment: {e}")
         raise
 
-# Load keys
-APP_KEY, APP_SECRET = load_api_keys()
+# Global variables for keys (loaded lazily)
+APP_KEY = None
+APP_SECRET = None
+REDIRECT_URI = None
+AUTH_URL = None
+TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+
+def get_api_keys():
+    """Get API keys, loading them if not already loaded"""
+    global APP_KEY, APP_SECRET
+    if APP_KEY is None or APP_SECRET is None:
+        APP_KEY, APP_SECRET = load_api_keys()
+    return APP_KEY, APP_SECRET
 
 # Configuration - Update redirect URI for EC2
 def get_redirect_uri():
     """Get the appropriate redirect URI based on environment"""
-    if is_running_on_ec2():
-        try:
-            # Get EC2 public IP
-            response = requests.get('http://169.254.169.254/latest/meta-data/public-ipv4', timeout=2)
-            if response.status_code == 200:
-                public_ip = response.text.strip()
-                return f"https://{public_ip}:8080/callback"
-        except:
-            pass
+    # Always use localhost for callback since that's what's typically configured in Schwab API settings
+    # The web interface will handle manual callback processing
     return os.getenv('SCHWAB_REDIRECT_URI', "https://127.0.0.1")
 
-REDIRECT_URI = get_redirect_uri()
-AUTH_URL = f"https://api.schwabapi.com/v1/oauth/authorize?response_type=code&client_id={APP_KEY}&redirect_uri={REDIRECT_URI}&scope=readonly"
-TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+def get_auth_url():
+    """Get the authorization URL, loading keys if needed"""
+    global AUTH_URL, REDIRECT_URI
+    if AUTH_URL is None:
+        app_key, _ = get_api_keys()
+        if REDIRECT_URI is None:
+            REDIRECT_URI = get_redirect_uri()
+        AUTH_URL = f"https://api.schwabapi.com/v1/oauth/authorize?response_type=code&client_id={app_key}&redirect_uri={REDIRECT_URI}&scope=readonly"
+    return AUTH_URL
 
 # AWS Secrets Manager integration
 def save_tokens(tokens):
@@ -155,13 +211,19 @@ def get_authorization_code():
 
 def get_tokens(code):
     print("Exchanging authorization code for tokens...")
-    credentials = f"{APP_KEY}:{APP_SECRET}"
+    app_key, app_secret = get_api_keys()
+    credentials = f"{app_key}:{app_secret}"
     base64_credentials = base64.b64encode(credentials.encode()).decode("utf-8")
 
     headers = {
         "Authorization": f"Basic {base64_credentials}",
         "Content-Type": "application/x-www-form-urlencoded"
     }
+    
+    global REDIRECT_URI
+    if REDIRECT_URI is None:
+        REDIRECT_URI = get_redirect_uri()
+    
     payload = {
         "grant_type": "authorization_code",
         "code": code,
@@ -181,7 +243,8 @@ def get_tokens(code):
 
 def refresh_tokens(refresh_token):
     print("Refreshing access token...")
-    credentials = f"{APP_KEY}:{APP_SECRET}"
+    app_key, app_secret = get_api_keys()
+    credentials = f"{app_key}:{app_secret}"
     base64_credentials = base64.b64encode(credentials.encode()).decode("utf-8")
 
     headers = {
