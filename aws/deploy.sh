@@ -37,6 +37,61 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to collect Schwab API credentials
+collect_schwab_credentials() {
+    echo ""
+    print_status "Collecting Charles Schwab API credentials..."
+    echo ""
+    echo "You'll need your Schwab API credentials from https://developer.schwab.com/"
+    echo "If you don't have them yet, you can:"
+    echo "1. Go to https://developer.schwab.com/"
+    echo "2. Sign in with your Schwab account"
+    echo "3. Create an app to get your Client ID and Client Secret"
+    echo ""
+    
+    # Prompt for Client ID
+    while [[ -z "$SCHWAB_CLIENT_ID" ]]; do
+        read -p "Enter your Schwab Client ID: " SCHWAB_CLIENT_ID
+        if [[ -z "$SCHWAB_CLIENT_ID" ]]; then
+            print_error "Client ID cannot be empty. Please enter your Schwab Client ID."
+        fi
+    done
+    
+    # Prompt for Client Secret (hidden input)
+    while [[ -z "$SCHWAB_CLIENT_SECRET" ]]; do
+        read -s -p "Enter your Schwab Client Secret: " SCHWAB_CLIENT_SECRET
+        echo ""  # New line after hidden input
+        if [[ -z "$SCHWAB_CLIENT_SECRET" ]]; then
+            print_error "Client Secret cannot be empty. Please enter your Schwab Client Secret."
+        fi
+    done
+    
+    print_success "Schwab API credentials collected successfully"
+    echo ""
+}
+
+# Function to update secrets manager with real credentials
+update_secrets_manager() {
+    print_status "Updating Secrets Manager with your Schwab API credentials..."
+    
+    # Create the JSON payload with real credentials
+    SECRET_VALUE=$(cat <<EOF
+{
+  "client_id": "$SCHWAB_CLIENT_ID",
+  "client_secret": "$SCHWAB_CLIENT_SECRET"
+}
+EOF
+)
+    
+    # Update the secret with real values
+    aws secretsmanager update-secret \
+        --secret-id "$SECRET_ARN" \
+        --secret-string "$SECRET_VALUE" \
+        --region "$REGION" > /dev/null
+    
+    print_success "Secrets Manager updated with your API credentials"
+}
+
 # Function to check if AWS CLI is installed and configured
 check_aws_cli() {
     print_status "Checking AWS CLI configuration..."
@@ -350,10 +405,12 @@ show_deployment_info() {
     echo "   View logs: sudo journalctl -u schwab-api -f"
     echo "   Restart: sudo systemctl restart schwab-api"
     echo ""
-    echo "🚀 Next Steps:"
+    echo "🚀 Ready to Use:"
     echo "   1. Open http://$PUBLIC_IP:8080 in your browser"
     echo "   2. Click 'Authenticate with Charles Schwab'"
     echo "   3. Complete the OAuth flow to start trading"
+    echo ""
+    echo "✅ Your Schwab API credentials are already configured!"
     echo ""
     echo "📚 The application includes:"
     echo "   • Charles Schwab OAuth authentication"
@@ -421,9 +478,11 @@ main() {
     
     # Execute deployment steps
     check_aws_cli
+    collect_schwab_credentials
     create_key_pair
     deploy_stack
     get_stack_outputs
+    update_secrets_manager
     check_ssh_key
     wait_for_instance
     deploy_application
