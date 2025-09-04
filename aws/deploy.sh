@@ -59,7 +59,33 @@ create_key_pair() {
     print_status "Checking for EC2 key pair: $KEY_PAIR_NAME"
     
     if aws ec2 describe-key-pairs --key-names "$KEY_PAIR_NAME" --region "$REGION" &> /dev/null; then
-        print_success "Key pair $KEY_PAIR_NAME already exists"
+        print_success "Key pair $KEY_PAIR_NAME already exists in AWS"
+        
+        # Check if we have the local key file
+        if [ ! -f "${KEY_PAIR_NAME}.pem" ]; then
+            print_warning "Local key file ${KEY_PAIR_NAME}.pem not found"
+            print_status "Creating new timestamped key pair for this deployment..."
+            
+            # Create a new key pair with timestamp
+            TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+            NEW_KEY_PAIR_NAME="${KEY_PAIR_NAME}-${TIMESTAMP}"
+            
+            aws ec2 create-key-pair \
+                --key-name "$NEW_KEY_PAIR_NAME" \
+                --region "$REGION" \
+                --query 'KeyMaterial' \
+                --output text > "${NEW_KEY_PAIR_NAME}.pem"
+            
+            chmod 400 "${NEW_KEY_PAIR_NAME}.pem"
+            
+            # Update the key pair name for this deployment
+            KEY_PAIR_NAME="$NEW_KEY_PAIR_NAME"
+            
+            print_success "New key pair created: ${KEY_PAIR_NAME}.pem"
+            print_warning "Keep this file safe! You'll need it to SSH into your EC2 instance."
+        else
+            print_success "Local key file ${KEY_PAIR_NAME}.pem found"
+        fi
     else
         print_status "Creating EC2 key pair: $KEY_PAIR_NAME"
         aws ec2 create-key-pair \
@@ -77,6 +103,7 @@ create_key_pair() {
 # Function to deploy CloudFormation stack
 deploy_stack() {
     print_status "Deploying CloudFormation stack: $STACK_NAME"
+    print_status "Using key pair: $KEY_PAIR_NAME"
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &> /dev/null; then
