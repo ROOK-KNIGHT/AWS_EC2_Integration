@@ -56,10 +56,10 @@ def load_secrets_from_aws():
         response = client.get_secret_value(SecretId=secret_name)
         secret = json.loads(response['SecretString'])
         
-        # Set environment variables from secrets
-        os.environ['SCHWAB_APP_KEY'] = secret['SCHWAB_APP_KEY']
-        os.environ['SCHWAB_APP_SECRET'] = secret['SCHWAB_APP_SECRET']
-        os.environ['SCHWAB_REDIRECT_URI'] = secret.get('SCHWAB_REDIRECT_URI', 'https://127.0.0.1')
+        # Set environment variables from secrets (using correct field names)
+        os.environ['SCHWAB_APP_KEY'] = secret['client_id']
+        os.environ['SCHWAB_APP_SECRET'] = secret['client_secret']
+        os.environ['SCHWAB_REDIRECT_URI'] = secret.get('redirect_uri', 'https://127.0.0.1')
         
         print("Successfully loaded secrets from AWS Secrets Manager")
         return True

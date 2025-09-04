@@ -51,16 +51,17 @@ collect_schwab_credentials() {
     
     # Prompt for Client ID
     while [[ -z "$SCHWAB_CLIENT_ID" ]]; do
-        read -p "Enter your Schwab Client ID: " SCHWAB_CLIENT_ID
+        echo -n "Enter your Schwab Client ID: "
+        read SCHWAB_CLIENT_ID
         if [[ -z "$SCHWAB_CLIENT_ID" ]]; then
             print_error "Client ID cannot be empty. Please enter your Schwab Client ID."
         fi
     done
     
-    # Prompt for Client Secret (hidden input)
+    # Prompt for Client Secret (visible input for compatibility)
     while [[ -z "$SCHWAB_CLIENT_SECRET" ]]; do
-        read -s -p "Enter your Schwab Client Secret: " SCHWAB_CLIENT_SECRET
-        echo ""  # New line after hidden input
+        echo -n "Enter your Schwab Client Secret: "
+        read SCHWAB_CLIENT_SECRET
         if [[ -z "$SCHWAB_CLIENT_SECRET" ]]; then
             print_error "Client Secret cannot be empty. Please enter your Schwab Client Secret."
         fi
