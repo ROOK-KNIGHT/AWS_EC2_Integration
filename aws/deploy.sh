@@ -12,6 +12,7 @@ KEY_PAIR_NAME="schwab-api-keypair"
 INSTANCE_TYPE="t3.small"
 ENVIRONMENT="production"
 REGION="us-east-1"
+ELASTIC_IP_ALLOCATION_ID=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -179,16 +180,28 @@ deploy_stack() {
     print_status "Deploying CloudFormation stack: $STACK_NAME"
     print_status "Using key pair: $KEY_PAIR_NAME"
     
+    # Build parameters array
+    PARAMETERS=(
+        "ParameterKey=KeyPairName,ParameterValue=$KEY_PAIR_NAME"
+        "ParameterKey=InstanceType,ParameterValue=$INSTANCE_TYPE"
+        "ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
+    )
+    
+    # Add Elastic IP parameter if provided
+    if [[ -n "$ELASTIC_IP_ALLOCATION_ID" ]]; then
+        PARAMETERS+=("ParameterKey=ElasticIPAllocationId,ParameterValue=$ELASTIC_IP_ALLOCATION_ID")
+        print_status "Using Elastic IP: $ELASTIC_IP_ALLOCATION_ID"
+    else
+        print_status "Using dynamic public IP"
+    fi
+    
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &> /dev/null; then
         print_status "Stack exists, updating..."
         aws cloudformation update-stack \
             --stack-name "$STACK_NAME" \
             --template-body file://"$TEMPLATE_FILE" \
-            --parameters \
-                ParameterKey=KeyPairName,ParameterValue="$KEY_PAIR_NAME" \
-                ParameterKey=InstanceType,ParameterValue="$INSTANCE_TYPE" \
-                ParameterKey=Environment,ParameterValue="$ENVIRONMENT" \
+            --parameters "${PARAMETERS[@]}" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$REGION"
         
@@ -201,10 +214,7 @@ deploy_stack() {
         aws cloudformation create-stack \
             --stack-name "$STACK_NAME" \
             --template-body file://"$TEMPLATE_FILE" \
-            --parameters \
-                ParameterKey=KeyPairName,ParameterValue="$KEY_PAIR_NAME" \
-                ParameterKey=InstanceType,ParameterValue="$INSTANCE_TYPE" \
-                ParameterKey=Environment,ParameterValue="$ENVIRONMENT" \
+            --parameters "${PARAMETERS[@]}" \
             --capabilities CAPABILITY_NAMED_IAM \
             --region "$REGION"
         
@@ -468,6 +478,10 @@ main() {
                 REGION="$2"
                 shift 2
                 ;;
+            --elastic-ip)
+                ELASTIC_IP_ALLOCATION_ID="$2"
+                shift 2
+                ;;
             --help)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -477,7 +491,11 @@ main() {
                 echo "  --instance-type TYPE    EC2 instance type (default: t3.small)"
                 echo "  --environment ENV       Environment name (default: production)"
                 echo "  --region REGION         AWS region (default: us-east-1)"
+                echo "  --elastic-ip ALLOC_ID   Elastic IP allocation ID (e.g., eipalloc-09b102c09f7400e53)"
                 echo "  --help                  Show this help message"
+                echo ""
+                echo "Example with Elastic IP:"
+                echo "  $0 --elastic-ip eipalloc-09b102c09f7400e53"
                 exit 0
                 ;;
             *)
