@@ -69,7 +69,7 @@ def get_secrets_from_aws():
                 # Set environment variables from secrets
                 os.environ['SCHWAB_APP_KEY'] = secret['SCHWAB_APP_KEY']
                 os.environ['SCHWAB_APP_SECRET'] = secret['SCHWAB_APP_SECRET']
-                os.environ['SCHWAB_REDIRECT_URI'] = secret.get('SCHWAB_REDIRECT_URI', 'https://54.236.71.121/callback')
+                os.environ['SCHWAB_REDIRECT_URI'] = secret.get('SCHWAB_REDIRECT_URI', 'https://127.0.0.1')
                 
                 logger.info("Successfully loaded secrets from AWS Secrets Manager")
                 return True
@@ -157,7 +157,7 @@ HTML_TEMPLATE = """
                 <h4>Manual Authentication Callback</h4>
                 <p><small>If you were redirected to a localhost URL after authentication, paste the full URL here:</small></p>
                 <div class="form-group">
-                    <input type="text" id="callback-url" placeholder="https://54.236.71.121/callback?code=..." style="width: 70%; margin-right: 10px;">
+                    <input type="text" id="callback-url" placeholder="https://127.0.0.1/?code=..." style="width: 70%; margin-right: 10px;">
                     <button onclick="processCallback()">Process Authentication</button>
                 </div>
                 <div id="callback-result"></div>

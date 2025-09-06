@@ -103,9 +103,9 @@ def get_api_keys():
 # Configuration - Update redirect URI for EC2
 def get_redirect_uri():
     """Get the appropriate redirect URI based on environment"""
-    # Use the actual EC2 instance IP as default for deployed applications
-    # Falls back to localhost for local development
-    return os.getenv('SCHWAB_REDIRECT_URI', "https://54.236.71.121/callback")
+    # Always use localhost for callback since that's what's typically configured in Schwab API settings
+    # The web interface will handle manual callback processing
+    return os.getenv('SCHWAB_REDIRECT_URI', "https://127.0.0.1")
 
 def get_auth_url():
     """Get the authorization URL, loading keys if needed"""
