@@ -45,13 +45,6 @@ Parameters:
       - production
     Description: Environment name
   
-  ElasticIPAllocationId:
-    Type: String
-    Default: ""
-    Description: (Optional) Allocation ID of an existing Elastic IP to associate with the EC2 instance (e.g., eipalloc-09b102c09f7400e53). Leave empty to use dynamic public IP.
-
-Conditions:
-  HasElasticIP: !Not [!Equals [!Ref ElasticIPAllocationId, ""]]
 
 Resources:
   # VPC Configuration
@@ -261,14 +254,6 @@ Resources:
           Value: !Sub '${Environment}-schwab-api-server'
         - Key: Environment
           Value: !Ref Environment
-
-  # Elastic IP Association (conditional)
-  ElasticIPAssociation:
-    Type: AWS::EC2::EIPAssociation
-    Condition: HasElasticIP
-    Properties:
-      AllocationId: !Ref ElasticIPAllocationId
-      InstanceId: !Ref EC2Instance
 
   # CloudWatch Log Group
   LogGroup:

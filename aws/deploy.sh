@@ -12,7 +12,6 @@ KEY_PAIR_NAME="schwab-api-keypair"
 INSTANCE_TYPE="t3.small"
 ENVIRONMENT="production"
 REGION="us-east-1"
-ELASTIC_IP_ALLOCATION_ID=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -187,13 +186,7 @@ deploy_stack() {
         "ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
     )
     
-    # Add Elastic IP parameter if provided
-    if [[ -n "$ELASTIC_IP_ALLOCATION_ID" ]]; then
-        PARAMETERS+=("ParameterKey=ElasticIPAllocationId,ParameterValue=$ELASTIC_IP_ALLOCATION_ID")
-        print_status "Using Elastic IP: $ELASTIC_IP_ALLOCATION_ID"
-    else
-        print_status "Using dynamic public IP"
-    fi
+    print_status "Using dynamic public IP"
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &> /dev/null; then
@@ -478,10 +471,6 @@ main() {
                 REGION="$2"
                 shift 2
                 ;;
-            --elastic-ip)
-                ELASTIC_IP_ALLOCATION_ID="$2"
-                shift 2
-                ;;
             --help)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -491,11 +480,7 @@ main() {
                 echo "  --instance-type TYPE    EC2 instance type (default: t3.small)"
                 echo "  --environment ENV       Environment name (default: production)"
                 echo "  --region REGION         AWS region (default: us-east-1)"
-                echo "  --elastic-ip ALLOC_ID   Elastic IP allocation ID (e.g., eipalloc-09b102c09f7400e53)"
                 echo "  --help                  Show this help message"
-                echo ""
-                echo "Example with Elastic IP:"
-                echo "  $0 --elastic-ip eipalloc-09b102c09f7400e53"
                 exit 0
                 ;;
             *)
