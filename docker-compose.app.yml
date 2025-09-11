@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: schwab-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites-available:/etc/nginx/sites-available:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - dashboard
+    networks:
+      - schwab-network
+
+  # Dashboard/Frontend Application
+  dashboard:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: schwab-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - API_BASE_URL=http://api-server:8080
+      - DATABASE_URL=postgresql://schwab_user:${DB_PASSWORD:-secure_password}@postgres:5432/schwab_trading
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    volumes:
+      - ./logs/dashboard:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - schwab-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: schwab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: schwab_trading
+      POSTGRES_USER: schwab_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - schwab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schwab_user -d schwab_trading"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for Caching and Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: schwab-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - schwab-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Background Worker for Alerts and Jobs
+  worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: schwab-worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://schwab_user:${DB_PASSWORD:-secure_password}@postgres:5432/schwab_trading
+      - REDIS_URL=redis://redis:6379
+      - API_BASE_URL=http://api-server:8080
+    env_file:
+      - .env
+    volumes:
+      - ./logs/worker:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - schwab-network
+
+  # Certbot for Let's Encrypt SSL
+  certbot:
+    image: certbot/certbot
+    container_name: schwab-certbot
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt
+      - ./nginx/webroot:/var/www/certbot
+    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@eduardomenck.com --agree-tos --no-eff-email -d schwabapi.eduardomenck.com
+    networks:
+      - schwab-network
+
+networks:
+  schwab-network:
+    driver: bridge
+    external: false
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

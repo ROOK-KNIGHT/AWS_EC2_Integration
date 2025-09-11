@@ -45,6 +45,13 @@ Parameters:
       - production
     Description: Environment name
   
+  ElasticIPAllocationId:
+    Type: String
+    Default: ""
+    Description: (Optional) Allocation ID of an existing Elastic IP to associate with the application server (e.g., eipalloc-09b102c09f7400e53). Leave empty to create a new one.
+
+Conditions:
+  CreateNewElasticIP: !Equals [!Ref ElasticIPAllocationId, ""]
 
 Resources:
   # VPC Configuration
@@ -107,12 +114,38 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet
 
-  # Security Group
-  SecurityGroup:
+  # Security Group for API Server
+  APISecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: !Sub '${Environment}-schwab-api-sg'
       GroupDescription: Security group for Schwab API EC2 instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 10.0.0.0/16
+          Description: API access from VPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-schwab-api-sg'
+
+  # Security Group for Application Server
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Environment}-schwab-app-sg'
+      GroupDescription: Security group for Application Server EC2 instance
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -131,17 +164,17 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: HTTPS access
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: 0.0.0.0/0
-          Description: Application port
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+          Description: PostgreSQL access from VPC
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
           Description: All outbound traffic
       Tags:
         - Key: Name
-          Value: !Sub '${Environment}-schwab-api-sg'
+          Value: !Sub '${Environment}-schwab-app-sg'
 
   # IAM Role for EC2 Instance
   EC2Role:
@@ -207,8 +240,8 @@ Resources:
           "client_secret": "REPLACE_WITH_YOUR_CLIENT_SECRET"
         }
 
-  # EC2 Instance
-  EC2Instance:
+  # API Server EC2 Instance
+  APIInstance:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
@@ -217,7 +250,7 @@ Resources:
       VpcId: !Ref VPC
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
-        - !Ref SecurityGroup
+        - !Ref APISecurityGroup
       IamInstanceProfile: !Ref EC2InstanceProfile
       UserData:
         Fn::Base64: !Sub |
@@ -248,12 +281,87 @@ Resources:
           chown ec2-user:ec2-user /var/log/schwab-api
           
           # Setup complete
-          echo "EC2 setup completed" > /var/log/setup-complete.log
+          echo "API Server setup completed" > /var/log/setup-complete.log
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-schwab-api-server'
         - Key: Environment
           Value: !Ref Environment
+        - Key: Role
+          Value: API
+
+  # Application Server EC2 Instance
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      InstanceType: t3.medium  # Larger instance for application server
+      KeyName: !Ref KeyPairName
+      VpcId: !Ref VPC
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y python3 python3-pip git htop nginx
+          
+          # Install Docker
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install Docker Compose
+          curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          chmod +x /usr/local/bin/docker-compose
+          
+          # Create application directory
+          mkdir -p /opt/schwab-app
+          chown ec2-user:ec2-user /opt/schwab-app
+          
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U ./amazon-cloudwatch-agent.rpm
+          
+          # Create log directory
+          mkdir -p /var/log/schwab-app
+          chown ec2-user:ec2-user /var/log/schwab-app
+          
+          # Setup Nginx
+          systemctl enable nginx
+          
+          # Setup complete
+          echo "Application Server setup completed" > /var/log/setup-complete.log
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-schwab-app-server'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Role
+          Value: Application
+
+  # Elastic IP for Application Server
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Condition: CreateNewElasticIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-schwab-app-eip'
+
+  # Elastic IP Association
+  ElasticIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !If 
+        - CreateNewElasticIP
+        - !GetAtt ElasticIP.AllocationId
+        - !Ref ElasticIPAllocationId
+      InstanceId: !Ref AppInstance
 
   # CloudWatch Log Group
   LogGroup:
@@ -263,29 +371,47 @@ Resources:
       RetentionInDays: 30
 
 Outputs:
-  InstanceId:
-    Description: EC2 Instance ID
-    Value: !Ref EC2Instance
+  APIInstanceId:
+    Description: API Server EC2 Instance ID
+    Value: !Ref APIInstance
     Export:
       Name: !Sub '${Environment}-schwab-api-instance-id'
 
-  PublicIP:
-    Description: Public IP address of the EC2 instance
-    Value: !GetAtt EC2Instance.PublicIp
+  AppInstanceId:
+    Description: Application Server EC2 Instance ID
+    Value: !Ref AppInstance
     Export:
-      Name: !Sub '${Environment}-schwab-api-public-ip'
+      Name: !Sub '${Environment}-schwab-app-instance-id'
 
-  PublicDNS:
-    Description: Public DNS name of the EC2 instance
-    Value: !GetAtt EC2Instance.PublicDnsName
+  APIPrivateIP:
+    Description: Private IP address of the API server
+    Value: !GetAtt APIInstance.PrivateIp
     Export:
-      Name: !Sub '${Environment}-schwab-api-public-dns'
+      Name: !Sub '${Environment}-schwab-api-private-ip'
 
-  SecurityGroupId:
-    Description: Security Group ID
-    Value: !Ref SecurityGroup
+  AppPublicIP:
+    Description: Public IP address of the Application server (Elastic IP)
+    Value: !If 
+      - CreateNewElasticIP
+      - !Ref ElasticIP
+      - !Ref ElasticIPAllocationId
     Export:
-      Name: !Sub '${Environment}-schwab-api-security-group-id'
+      Name: !Sub '${Environment}-schwab-app-public-ip'
+
+  AppPublicDNS:
+    Description: Public DNS name of the Application server
+    Value: !GetAtt AppInstance.PublicDnsName
+    Export:
+      Name: !Sub '${Environment}-schwab-app-public-dns'
+
+  ElasticIPAddress:
+    Description: Elastic IP address for the Application server
+    Value: !If 
+      - CreateNewElasticIP
+      - !Ref ElasticIP
+      - !Ref ElasticIPAllocationId
+    Export:
+      Name: !Sub '${Environment}-schwab-app-elastic-ip'
 
   SecretArn:
     Description: ARN of the Secrets Manager secret
@@ -293,6 +419,14 @@ Outputs:
     Export:
       Name: !Sub '${Environment}-schwab-api-secret-arn'
 
-  SSHCommand:
-    Description: SSH command to connect to the instance
-    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${EC2Instance.PublicIp}'
+  APISSHCommand:
+    Description: SSH command to connect to the API server
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${APIInstance.PublicIp}'
+
+  AppSSHCommand:
+    Description: SSH command to connect to the Application server
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${AppInstance.PublicIp}'
+
+  DomainSetupInstructions:
+    Description: Instructions for setting up the domain
+    Value: !Sub 'Point schwabapi.eduardomenck.com A record to: ${ElasticIP}'

@@ -158,7 +158,7 @@ AWS_EC2_Integration/
 - **Security Groups** with minimal required access
 - **HTTPS Redirect URIs** for OAuth flow
 
-## 🚨 Troubleshooting
+## � Troubleshooting
 
 ### Common Issues
 
