@@ -1521,4 +1521,47 @@ main() {
                 exit 0
                 ;;
             *)
-                print_error "Unknown option
+                print_error "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Step 1: Check prerequisites
+    check_aws_cli
+    
+    # Step 2: Collect all configuration
+    collect_domain_config
+    collect_google_sso_config
+    collect_notification_config
+    collect_schwab_credentials
+    
+    # Step 3: Create key pair
+    create_key_pair
+    
+    # Step 4: Deploy infrastructure
+    deploy_stack
+    
+    # Step 5: Get stack outputs
+    get_stack_outputs
+    
+    # Step 6: Update secrets manager
+    update_secrets_manager
+    
+    # Step 7: Wait for instances
+    wait_for_instance
+    
+    # Step 8: Deploy applications
+    deploy_application
+    
+    # Step 9: Verify deployment
+    verify_application
+    
+    # Step 10: Show deployment information
+    show_deployment_info
+    
+    print_success "Milestone 2 deployment completed successfully!"
+}
+
+# Execute main function
+main "$@"
