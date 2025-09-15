@@ -43,6 +43,149 @@ print_milestone() {
     echo -e "${PURPLE}[MILESTONE 2]${NC} $1"
 }
 
+# Function to cleanup existing AWS resources
+cleanup_aws_resources() {
+    print_status "Starting cleanup of existing AWS resources..."
+    
+    # Confirmation prompt for safety
+    echo -e "${YELLOW}⚠️  This will delete existing AWS resources from the $STACK_NAME stack.${NC}"
+    echo -e "${YELLOW}   This includes EC2 instances, secrets, VPC resources, and key pairs.${NC}"
+    read -p "Do you want to proceed with cleanup? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_status "Skipping cleanup. Proceeding with deployment..."
+        return 0
+    fi
+    
+    print_status "Proceeding with AWS resource cleanup..."
+    
+    # 1. Delete CloudFormation Stack
+    print_status "[1/7] Deleting CloudFormation stack..."
+    if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" >/dev/null 2>&1; then
+        aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION" 2>/dev/null
+        print_status "Waiting for CloudFormation stack deletion to complete..."
+        aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$REGION" 2>/dev/null || true
+        print_success "CloudFormation stack removed"
+    else
+        print_status "CloudFormation stack not found, skipping"
+    fi
+
+    # 2. Terminate EC2 instances (only from our stack)
+    print_status "[2/7] Terminating EC2 instances from stack..."
+    INSTANCE_IDS=$(aws ec2 describe-instances --region "$REGION" \
+      --filters "Name=instance-state-name,Values=running,pending,stopping,stopped" \
+      --filters "Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME" \
+      --query "Reservations[].Instances[].InstanceId" --output text 2>/dev/null || true)
+    if [ -n "$INSTANCE_IDS" ]; then
+      aws ec2 terminate-instances --instance-ids $INSTANCE_IDS --region "$REGION" >/dev/null 2>&1
+      print_status "Waiting for instances to terminate..."
+      aws ec2 wait instance-terminated --instance-ids $INSTANCE_IDS --region "$REGION" 2>/dev/null || true
+      print_success "Stack instances terminated"
+    else
+      print_status "No stack instances found"
+    fi
+
+    # 3. Delete Secrets Manager secrets (only our stack's secrets)
+    print_status "[3/7] Deleting Secrets..."
+    SECRETS=$(aws secretsmanager list-secrets --region "$REGION" \
+      --query "SecretList[?contains(Name, 'schwab-api') || contains(Name, 'production/schwab-api')].Name" --output text 2>/dev/null || true)
+    if [ -n "$SECRETS" ]; then
+        for SECRET in $SECRETS; do
+          aws secretsmanager delete-secret --secret-id "$SECRET" --region "$REGION" --force-delete-without-recovery >/dev/null 2>&1 || true
+          print_status "Deleted secret: $SECRET"
+        done
+        print_success "Stack secrets deleted"
+    else
+        print_status "No stack secrets found"
+    fi
+
+    # 4. Delete VPC-related resources (only from our stack)
+    print_status "[4/7] Cleaning VPCs from stack..."
+    VPCS=$(aws ec2 describe-vpcs --region "$REGION" \
+      --filters "Name=tag:aws:cloudformation:stack-name,Values=$STACK_NAME" \
+      --query "Vpcs[].VpcId" --output text 2>/dev/null || true)
+    if [ -n "$VPCS" ]; then
+        for VPC in $VPCS; do
+          print_status "Processing stack VPC: $VPC"
+
+          # Delete NAT Gateways first (if any)
+          NATGWS=$(aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC" --region "$REGION" --query "NatGateways[].NatGatewayId" --output text 2>/dev/null || true)
+          if [ -n "$NATGWS" ]; then
+              for NATGW in $NATGWS; do
+                aws ec2 delete-nat-gateway --nat-gateway-id "$NATGW" --region "$REGION" >/dev/null 2>&1 || true
+                print_status "Deleted NAT Gateway: $NATGW"
+              done
+              print_status "Waiting for NAT Gateways to be deleted..."
+              sleep 30
+          fi
+
+          # Subnets
+          SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" --region "$REGION" --query "Subnets[].SubnetId" --output text 2>/dev/null || true)
+          if [ -n "$SUBNETS" ]; then
+              for SUBNET in $SUBNETS; do
+                aws ec2 delete-subnet --subnet-id "$SUBNET" --region "$REGION" >/dev/null 2>&1 || true
+                print_status "Deleted subnet: $SUBNET"
+              done
+          fi
+
+          # Route Tables (skip main)
+          RTBS=$(aws ec2 describe-route-tables --filters "Name=vpc-id,Values=$VPC" --region "$REGION" --query "RouteTables[].RouteTableId" --output text 2>/dev/null || true)
+          if [ -n "$RTBS" ]; then
+              for RTB in $RTBS; do
+                MAIN=$(aws ec2 describe-route-tables --route-table-ids "$RTB" --region "$REGION" --query "RouteTables[].Associations[].Main" --output text 2>/dev/null || true)
+                if [[ "$MAIN" != "True" ]]; then
+                  aws ec2 delete-route-table --route-table-id "$RTB" --region "$REGION" >/dev/null 2>&1 || true
+                  print_status "Deleted route table: $RTB"
+                fi
+              done
+          fi
+
+          # Internet Gateways
+          IGWS=$(aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=$VPC" --region "$REGION" --query "InternetGateways[].InternetGatewayId" --output text 2>/dev/null || true)
+          if [ -n "$IGWS" ]; then
+              for IGW in $IGWS; do
+                aws ec2 detach-internet-gateway --internet-gateway-id "$IGW" --vpc-id "$VPC" --region "$REGION" >/dev/null 2>&1 || true
+                aws ec2 delete-internet-gateway --internet-gateway-id "$IGW" --region "$REGION" >/dev/null 2>&1 || true
+                print_status "Deleted IGW: $IGW"
+              done
+          fi
+
+          # Security Groups (skip default)
+          SGS=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC" --region "$REGION" --query "SecurityGroups[].GroupId" --output text 2>/dev/null || true)
+          if [ -n "$SGS" ]; then
+              for SG in $SGS; do
+                DEFAULT=$(aws ec2 describe-security-groups --group-ids "$SG" --region "$REGION" --query "SecurityGroups[].GroupName" --output text 2>/dev/null || true)
+                if [[ "$DEFAULT" != "default" ]]; then
+                  aws ec2 delete-security-group --group-id "$SG" --region "$REGION" >/dev/null 2>&1 || true
+                  print_status "Deleted SG: $SG"
+                fi
+              done
+          fi
+
+          # Finally delete VPC
+          aws ec2 delete-vpc --vpc-id "$VPC" --region "$REGION" >/dev/null 2>&1 || true
+          print_success "Deleted VPC: $VPC"
+        done
+    else
+        print_status "No stack VPCs found"
+    fi
+
+    # 5. Delete Key Pairs (schwab-api related)
+    print_status "[5/7] Checking Key Pairs..."
+    KEYS=$(aws ec2 describe-key-pairs --region "$REGION" --query "KeyPairs[].KeyName" --output text 2>/dev/null || true)
+    if [ -n "$KEYS" ]; then
+        for KEY in $KEYS; do
+          if [[ "$KEY" == schwab-api-keypair* ]]; then
+            aws ec2 delete-key-pair --key-name "$KEY" --region "$REGION" >/dev/null 2>&1 || true
+            print_status "Deleted key pair: $KEY"
+          fi
+        done
+    fi
+
+    print_success "AWS resource cleanup completed"
+    echo ""
+}
+
 # Function to collect domain configuration
 collect_domain_config() {
     echo ""
@@ -1530,7 +1673,10 @@ main() {
     # Step 1: Check prerequisites
     check_aws_cli
     
-    # Step 2: Collect all configuration
+    # Step 2: Cleanup existing resources (optional)
+    cleanup_aws_resources
+    
+    # Step 3: Collect all configuration
     collect_domain_config
     collect_google_sso_config
     collect_notification_config
