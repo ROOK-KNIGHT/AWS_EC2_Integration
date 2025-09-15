@@ -10,6 +10,10 @@ cs_tokens.json
 *.key
 *.crt
 
+# Files with embedded credentials
+handlers/schwab_transaction_data.py
+handlers/simple_options_fetcher.py
+
 # AWS Credentials
 .aws/
 aws-credentials.json

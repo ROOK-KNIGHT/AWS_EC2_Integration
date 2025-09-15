@@ -2,25 +2,40 @@
 """
 Main application file for Charles Schwab API Integration
 Provides a Flask web interface and API endpoints for trading operations
+Enhanced with dashboard features, metrics, alerts, and notifications
 """
 
 import os
 import sys
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from flask import Flask, request, jsonify, render_template_string
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
 import boto3
 from botocore.exceptions import ClientError
 
-# Add handlers directory to path
+# Add handlers and services directories to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'handlers'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'services'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'models'))
 
 # Import our handlers
 from connection_manager import ensure_valid_tokens, get_all_positions
 from historical_data_handler import HistoricalDataHandler
 from order_handler import OrderHandler
+
+# Import services
+from metrics_calculator import MetricsCalculator
+from alert_manager import AlertManager
+from notification_service import NotificationService
+from options_service import OptionsService
+
+# Import database models
+from database import db, Trade, Position, DailyMetrics, Alert, Watchlist, WatchlistItem, Configuration
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +43,16 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Database configuration
+database_url = os.getenv('DATABASE_URL', 'sqlite:///trading_dashboard.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize extensions
+db.init_app(app)
+CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Configure logging
 log_dir = '/opt/schwab-api/logs'
@@ -819,6 +844,384 @@ def upload_tokens():
         logger.error(f"Error uploading tokens: {e}")
         return jsonify({'error': str(e)}), 500
 
+# Dashboard API Endpoints
+
+@app.route('/api/dashboard/metrics')
+def dashboard_metrics():
+    """Get dashboard metrics"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        metrics_calc = MetricsCalculator()
+        
+        # Get comprehensive performance summary
+        summary = metrics_calc.get_performance_summary(days)
+        
+        return jsonify(summary)
+    except Exception as e:
+        logger.error(f"Error getting dashboard metrics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dashboard/portfolio')
+def dashboard_portfolio():
+    """Get portfolio metrics"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        metrics_calc = MetricsCalculator()
+        
+        portfolio_metrics = metrics_calc.calculate_portfolio_metrics(days)
+        position_metrics = metrics_calc.calculate_position_metrics()
+        
+        return jsonify({
+            'portfolio_metrics': portfolio_metrics,
+            'positions': position_metrics
+        })
+    except Exception as e:
+        logger.error(f"Error getting portfolio data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dashboard/options')
+def dashboard_options():
+    """Get options metrics and data"""
+    try:
+        options_service = OptionsService()
+        metrics_calc = MetricsCalculator()
+        
+        # Get options metrics
+        options_metrics = metrics_calc.calculate_options_metrics()
+        portfolio_greeks = options_service.calculate_portfolio_greeks()
+        
+        return jsonify({
+            'options_metrics': options_metrics,
+            'portfolio_greeks': portfolio_greeks
+        })
+    except Exception as e:
+        logger.error(f"Error getting options data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/options/chain/<symbol>')
+def options_chain(symbol):
+    """Get options chain for a symbol"""
+    try:
+        options_service = OptionsService()
+        
+        # Get query parameters
+        contract_type = request.args.get('contractType', 'ALL')
+        strike_count = request.args.get('strikeCount', 10, type=int)
+        range_type = request.args.get('range', 'ALL')
+        
+        chain_data = options_service.fetch_options_chain(
+            symbol=symbol.upper(),
+            contract_type=contract_type,
+            strike_count=strike_count,
+            range_type=range_type
+        )
+        
+        return jsonify(chain_data)
+    except Exception as e:
+        logger.error(f"Error getting options chain: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/options/opportunities')
+def options_opportunities():
+    """Find options trading opportunities"""
+    try:
+        options_service = OptionsService()
+        
+        # Get search criteria from query parameters
+        criteria = {
+            'min_iv_rank': request.args.get('min_iv_rank', 70, type=int),
+            'max_days_to_expiration': request.args.get('max_dte', 45, type=int),
+            'min_volume': request.args.get('min_volume', 100, type=int),
+            'option_type': request.args.get('option_type', 'ALL'),
+            'moneyness': request.args.get('moneyness', 'ALL')
+        }
+        
+        opportunities = options_service.find_option_opportunities(criteria)
+        
+        return jsonify({
+            'opportunities': opportunities,
+            'criteria': criteria,
+            'count': len(opportunities)
+        })
+    except Exception as e:
+        logger.error(f"Error finding options opportunities: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Alerts API Endpoints
+
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    """Get all alerts"""
+    try:
+        alert_manager = AlertManager()
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        
+        alerts = alert_manager.get_alerts(active_only=active_only)
+        
+        return jsonify({
+            'alerts': alerts,
+            'count': len(alerts)
+        })
+    except Exception as e:
+        logger.error(f"Error getting alerts: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts', methods=['POST'])
+def create_alert():
+    """Create a new alert"""
+    try:
+        alert_manager = AlertManager()
+        alert_data = request.get_json()
+        
+        if not alert_data:
+            return jsonify({'error': 'No alert data provided'}), 400
+        
+        result = alert_manager.create_alert(alert_data)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result), 201
+    except Exception as e:
+        logger.error(f"Error creating alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts/<int:alert_id>', methods=['PUT'])
+def update_alert(alert_id):
+    """Update an alert"""
+    try:
+        alert_manager = AlertManager()
+        update_data = request.get_json()
+        
+        if not update_data:
+            return jsonify({'error': 'No update data provided'}), 400
+        
+        result = alert_manager.update_alert(alert_id, update_data)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error updating alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts/<int:alert_id>', methods=['DELETE'])
+def delete_alert(alert_id):
+    """Delete an alert"""
+    try:
+        alert_manager = AlertManager()
+        result = alert_manager.delete_alert(alert_id)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error deleting alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts/<int:alert_id>/test', methods=['POST'])
+def test_alert(alert_id):
+    """Test an alert"""
+    try:
+        alert_manager = AlertManager()
+        result = alert_manager.test_alert(alert_id)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error testing alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts/<int:alert_id>/reset', methods=['POST'])
+def reset_alert(alert_id):
+    """Reset a triggered alert"""
+    try:
+        alert_manager = AlertManager()
+        result = alert_manager.reset_alert(alert_id)
+        
+        if 'error' in result:
+            return jsonify(result), 400
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error resetting alert: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alerts/history')
+def alert_history():
+    """Get alert history"""
+    try:
+        alert_manager = AlertManager()
+        days = request.args.get('days', 7, type=int)
+        
+        history = alert_manager.get_alert_history(days)
+        
+        return jsonify({
+            'history': history,
+            'days': days,
+            'count': len(history)
+        })
+    except Exception as e:
+        logger.error(f"Error getting alert history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Notifications API Endpoints
+
+@app.route('/api/notifications/status')
+def notification_status():
+    """Get notification service status"""
+    try:
+        notification_service = NotificationService()
+        status = notification_service.get_notification_status()
+        
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"Error getting notification status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notifications/test', methods=['POST'])
+def test_notifications():
+    """Test all notification channels"""
+    try:
+        notification_service = NotificationService()
+        results = notification_service.test_notifications()
+        
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"Error testing notifications: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notifications/history')
+def notification_history():
+    """Get notification history"""
+    try:
+        notification_service = NotificationService()
+        days = request.args.get('days', 7, type=int)
+        notification_type = request.args.get('type')
+        
+        history = notification_service.get_notification_history(days, notification_type)
+        
+        return jsonify({
+            'history': history,
+            'days': days,
+            'type': notification_type,
+            'count': len(history)
+        })
+    except Exception as e:
+        logger.error(f"Error getting notification history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Watchlist API Endpoints
+
+@app.route('/api/watchlists', methods=['GET'])
+def get_watchlists():
+    """Get all watchlists"""
+    try:
+        watchlists = db.session.query(Watchlist).filter(Watchlist.is_active == True).all()
+        
+        return jsonify({
+            'watchlists': [wl.to_dict() for wl in watchlists],
+            'count': len(watchlists)
+        })
+    except Exception as e:
+        logger.error(f"Error getting watchlists: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/watchlists', methods=['POST'])
+def create_watchlist():
+    """Create a new watchlist"""
+    try:
+        data = request.get_json()
+        if not data or 'name' not in data:
+            return jsonify({'error': 'Watchlist name is required'}), 400
+        
+        watchlist = Watchlist(
+            name=data['name'],
+            description=data.get('description', '')
+        )
+        
+        db.session.add(watchlist)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'watchlist': watchlist.to_dict()
+        }), 201
+    except Exception as e:
+        logger.error(f"Error creating watchlist: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/watchlists/<int:watchlist_id>/items', methods=['POST'])
+def add_watchlist_item(watchlist_id):
+    """Add item to watchlist"""
+    try:
+        data = request.get_json()
+        if not data or 'symbol' not in data:
+            return jsonify({'error': 'Symbol is required'}), 400
+        
+        # Check if watchlist exists
+        watchlist = db.session.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+        if not watchlist:
+            return jsonify({'error': 'Watchlist not found'}), 404
+        
+        # Check if item already exists
+        existing = db.session.query(WatchlistItem).filter(
+            WatchlistItem.watchlist_id == watchlist_id,
+            WatchlistItem.symbol == data['symbol'].upper()
+        ).first()
+        
+        if existing:
+            return jsonify({'error': 'Symbol already in watchlist'}), 400
+        
+        item = WatchlistItem(
+            watchlist_id=watchlist_id,
+            symbol=data['symbol'].upper(),
+            notes=data.get('notes', ''),
+            target_price=data.get('target_price'),
+            stop_loss=data.get('stop_loss')
+        )
+        
+        db.session.add(item)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'item': item.to_dict()
+        }), 201
+    except Exception as e:
+        logger.error(f"Error adding watchlist item: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# WebSocket Events for Real-time Updates
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection"""
+    logger.info('Client connected')
+    emit('status', {'message': 'Connected to trading dashboard'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    logger.info('Client disconnected')
+
+@socketio.on('subscribe_metrics')
+def handle_subscribe_metrics():
+    """Subscribe to real-time metrics updates"""
+    try:
+        metrics_calc = MetricsCalculator()
+        summary = metrics_calc.get_performance_summary(1)  # Today's metrics
+        emit('metrics_update', summary)
+    except Exception as e:
+        logger.error(f"Error sending metrics update: {e}")
+        emit('error', {'message': str(e)})
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Not found'}), 404
@@ -827,7 +1230,51 @@ def not_found(error):
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
+def initialize_database():
+    """Initialize database tables and default configuration"""
+    try:
+        with app.app_context():
+            # Create all tables
+            db.create_all()
+            logger.info("Database tables created/verified")
+            
+            # Add default configuration if not exists
+            default_configs = [
+                ('dashboard_refresh_interval', '30', 'int', 'Dashboard refresh interval in seconds'),
+                ('alert_check_interval', '30', 'int', 'Alert check interval in seconds'),
+                ('max_daily_alerts', '50', 'int', 'Maximum alerts per day'),
+                ('default_risk_free_rate', '0.05', 'float', 'Default risk-free rate for options calculations'),
+                ('notification_settings', '{"email": true, "telegram": false, "slack": false}', 'json', 'Default notification channel settings'),
+                ('dashboard_theme', 'light', 'string', 'Dashboard theme (light/dark)'),
+                ('timezone', 'America/New_York', 'string', 'Default timezone for the application')
+            ]
+            
+            for key, value, data_type, description in default_configs:
+                existing = db.session.query(Configuration).filter(Configuration.key == key).first()
+                if not existing:
+                    config = Configuration(
+                        key=key,
+                        value=value,
+                        data_type=data_type,
+                        description=description
+                    )
+                    db.session.add(config)
+            
+            db.session.commit()
+            logger.info("Database initialization complete")
+            
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
+        return False
+    
+    return True
+
 if __name__ == '__main__':
+    # Initialize database
+    if not initialize_database():
+        logger.error("Failed to initialize database, exiting")
+        sys.exit(1)
+    
     # Initialize handlers
     if not initialize_handlers():
         logger.error("Failed to initialize handlers, exiting")
@@ -842,5 +1289,10 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 8080))
     debug = os.getenv('APP_ENV', 'production') != 'production'
     
-    logger.info(f"Starting Charles Schwab API Integration server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    logger.info(f"Starting Charles Schwab Trading Dashboard on port {port}")
+    
+    if debug:
+        app.run(host='0.0.0.0', port=port, debug=debug)
+    else:
+        # Use SocketIO for production with real-time features
+        socketio.run(app, host='0.0.0.0', port=port, debug=debug)

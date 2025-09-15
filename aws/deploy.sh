@@ -196,20 +196,20 @@ collect_domain_config() {
     
     # Domain name
     while [[ -z "$DOMAIN_NAME" ]]; do
-        echo -n "Enter your domain name [default: schwabapi.eduardomenck.com]: "
+        echo -n "Enter your domain name [default: schwabapi.imart.com]: "
         read DOMAIN_NAME
         if [[ -z "$DOMAIN_NAME" ]]; then
-            DOMAIN_NAME="schwabapi.eduardomenck.com"
+            DOMAIN_NAME="schwabapi.imart.com"
             print_status "Using default domain: $DOMAIN_NAME"
         fi
     done
     
     # Admin email for SSL certificates
     while [[ -z "$ADMIN_EMAIL" ]]; do
-        echo -n "Enter admin email for SSL certificates [default: admin@eduardomenck.com]: "
+        echo -n "Enter admin email for SSL certificates [default: admin@imart.com]: "
         read ADMIN_EMAIL
         if [[ -z "$ADMIN_EMAIL" ]]; then
-            ADMIN_EMAIL="admin@eduardomenck.com"
+            ADMIN_EMAIL="admin@imart.com"
             print_status "Using default email: $ADMIN_EMAIL"
         fi
     done
@@ -269,9 +269,9 @@ collect_google_sso_config() {
 # Function to collect notification settings
 collect_notification_config() {
     echo ""
-    print_milestone "Notification & Alerts Configuration"
+    print_milestone "Trading Dashboard Notification & Alerts Configuration"
     echo ""
-    echo "Configure notification channels for alerts and monitoring:"
+    echo "Configure notification channels for trading alerts and monitoring:"
     echo ""
     
     # Email notifications
@@ -287,6 +287,31 @@ collect_notification_config() {
         if [[ -z "$NOTIFICATION_EMAIL" ]]; then
             NOTIFICATION_EMAIL="$ADMIN_EMAIL"
         fi
+        
+        # SMTP Configuration for email alerts
+        echo ""
+        echo "SMTP Configuration for Email Alerts:"
+        echo -n "SMTP Server [default: smtp.gmail.com]: "
+        read SMTP_SERVER
+        if [[ -z "$SMTP_SERVER" ]]; then
+            SMTP_SERVER="smtp.gmail.com"
+        fi
+        
+        echo -n "SMTP Port [default: 587]: "
+        read SMTP_PORT
+        if [[ -z "$SMTP_PORT" ]]; then
+            SMTP_PORT="587"
+        fi
+        
+        echo -n "SMTP Username [default: $NOTIFICATION_EMAIL]: "
+        read SMTP_USERNAME
+        if [[ -z "$SMTP_USERNAME" ]]; then
+            SMTP_USERNAME="$NOTIFICATION_EMAIL"
+        fi
+        
+        echo -n "SMTP Password (App Password recommended): "
+        read -s SMTP_PASSWORD
+        echo ""
     fi
     
     # Slack notifications (optional)
@@ -301,7 +326,60 @@ collect_notification_config() {
         read SLACK_WEBHOOK_URL
     fi
     
-    print_success "Notification configuration collected"
+    # Telegram notifications (optional)
+    echo -n "Enable Telegram notifications? (y/n) [default: n]: "
+    read ENABLE_TELEGRAM_NOTIFICATIONS
+    if [[ -z "$ENABLE_TELEGRAM_NOTIFICATIONS" ]]; then
+        ENABLE_TELEGRAM_NOTIFICATIONS="n"
+    fi
+    
+    if [[ "$ENABLE_TELEGRAM_NOTIFICATIONS" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "Telegram Bot Configuration:"
+        echo "1. Create a bot by messaging @BotFather on Telegram"
+        echo "2. Get your bot token from @BotFather"
+        echo "3. Get your chat ID by messaging @userinfobot"
+        echo ""
+        echo -n "Enter Telegram Bot Token: "
+        read TELEGRAM_BOT_TOKEN
+        echo -n "Enter Telegram Chat ID: "
+        read TELEGRAM_CHAT_ID
+    fi
+    
+    # Trading Alert Thresholds
+    echo ""
+    echo "Trading Alert Thresholds:"
+    echo -n "Daily loss limit (USD) [default: 1000]: "
+    read DAILY_LOSS_LIMIT
+    if [[ -z "$DAILY_LOSS_LIMIT" ]]; then
+        DAILY_LOSS_LIMIT="1000"
+    fi
+    
+    echo -n "Total loss limit (USD) [default: 5000]: "
+    read TOTAL_LOSS_LIMIT
+    if [[ -z "$TOTAL_LOSS_LIMIT" ]]; then
+        TOTAL_LOSS_LIMIT="5000"
+    fi
+    
+    echo -n "Volatility spike threshold (%) [default: 10]: "
+    read VOLATILITY_THRESHOLD
+    if [[ -z "$VOLATILITY_THRESHOLD" ]]; then
+        VOLATILITY_THRESHOLD="10"
+    fi
+    
+    echo -n "High margin usage threshold (%) [default: 80]: "
+    read MARGIN_THRESHOLD
+    if [[ -z "$MARGIN_THRESHOLD" ]]; then
+        MARGIN_THRESHOLD="80"
+    fi
+    
+    echo -n "Alert check interval (seconds) [default: 30]: "
+    read ALERT_CHECK_INTERVAL
+    if [[ -z "$ALERT_CHECK_INTERVAL" ]]; then
+        ALERT_CHECK_INTERVAL="30"
+    fi
+    
+    print_success "Trading dashboard notification configuration collected"
 }
 
 # Function to collect Schwab API credentials
@@ -354,9 +432,9 @@ collect_schwab_credentials() {
 
 # Function to update secrets manager with all credentials
 update_secrets_manager() {
-    print_milestone "Updating AWS Secrets Manager with all credentials..."
+    print_milestone "Updating AWS Secrets Manager with all credentials and trading dashboard configuration..."
     
-    # Create comprehensive secret with all credentials
+    # Create comprehensive secret with all credentials and trading dashboard settings
     SECRET_VALUE=$(cat <<EOF
 {
   "schwab_client_id": "$SCHWAB_CLIENT_ID",
@@ -368,10 +446,25 @@ update_secrets_manager() {
   "admin_email": "$ADMIN_EMAIL",
   "notification_email": "${NOTIFICATION_EMAIL:-$ADMIN_EMAIL}",
   "slack_webhook_url": "${SLACK_WEBHOOK_URL:-}",
+  "telegram_bot_token": "${TELEGRAM_BOT_TOKEN:-}",
+  "telegram_chat_id": "${TELEGRAM_CHAT_ID:-}",
+  "smtp_server": "${SMTP_SERVER:-smtp.gmail.com}",
+  "smtp_port": "${SMTP_PORT:-587}",
+  "smtp_username": "${SMTP_USERNAME:-$NOTIFICATION_EMAIL}",
+  "smtp_password": "${SMTP_PASSWORD:-}",
+  "daily_loss_limit": "${DAILY_LOSS_LIMIT:-1000}",
+  "total_loss_limit": "${TOTAL_LOSS_LIMIT:-5000}",
+  "volatility_threshold": "${VOLATILITY_THRESHOLD:-10}",
+  "margin_threshold": "${MARGIN_THRESHOLD:-80}",
+  "alert_check_interval": "${ALERT_CHECK_INTERVAL:-30}",
+  "enable_email_notifications": "${ENABLE_EMAIL_NOTIFICATIONS:-y}",
+  "enable_slack_notifications": "${ENABLE_SLACK_NOTIFICATIONS:-n}",
+  "enable_telegram_notifications": "${ENABLE_TELEGRAM_NOTIFICATIONS:-n}",
   "jwt_secret": "$(openssl rand -base64 32)",
   "session_secret": "$(openssl rand -base64 32)",
   "db_password": "$(openssl rand -base64 16)",
-  "redis_password": "$(openssl rand -base64 16)"
+  "redis_password": "$(openssl rand -base64 16)",
+  "encryption_key": "$(openssl rand -base64 32)"
 }
 EOF
 )
@@ -382,7 +475,7 @@ EOF
         --secret-string "$SECRET_VALUE" \
         --region "$REGION" > /dev/null
     
-    print_success "Secrets Manager updated with all credentials and configuration"
+    print_success "Secrets Manager updated with all credentials and trading dashboard configuration"
 }
 
 # Function to check if AWS CLI is installed and configured
@@ -598,14 +691,16 @@ deploy_api_server() {
     
     # Deploy API server code with enhancements
     print_status "Uploading enhanced API server files..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r app.py requirements.txt handlers/ ec2-user@"$API_PUBLIC_IP":/tmp/
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r app.py requirements.txt handlers/ models/ services/ init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/
     
     # Set up enhanced API server with monitoring
     ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$API_PUBLIC_IP" "
-        sudo mkdir -p /opt/schwab-api/handlers /opt/schwab-api/logs /opt/schwab-api/config
+        sudo mkdir -p /opt/schwab-api/handlers /opt/schwab-api/models /opt/schwab-api/services /opt/schwab-api/logs /opt/schwab-api/config
         sudo chown -R ec2-user:ec2-user /opt/schwab-api
-        cp /tmp/app.py /tmp/requirements.txt /opt/schwab-api/
+        cp /tmp/app.py /tmp/requirements.txt /tmp/init_db.py /opt/schwab-api/
         cp /tmp/handlers/* /opt/schwab-api/handlers/
+        cp -r /tmp/models/* /opt/schwab-api/models/
+        cp -r /tmp/services/* /opt/schwab-api/services/
         cd /opt/schwab-api
         
         # Install enhanced requirements
@@ -618,6 +713,16 @@ boto3>=1.26.0
 EOF
         
         python3 -m pip install --user -r requirements.txt
+        
+        # Initialize trading dashboard database
+        print_status 'Initializing trading dashboard database...'
+        python3 init_db.py
+        if [ $? -eq 0 ]; then
+            print_success 'Trading dashboard database initialized successfully'
+        else
+            print_error 'Failed to initialize trading dashboard database'
+            exit 1
+        fi
         
         # Create enhanced configuration
         cat > config/monitoring.py << 'EOF'
