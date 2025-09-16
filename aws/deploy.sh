@@ -703,7 +703,32 @@ deploy_api_server() {
     
     # Deploy API server code with enhancements
     print_status "Uploading enhanced API server files..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r ../app.py ../requirements.txt ../handlers/ ../models/ ../services/ ../init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/
+    
+    # Upload individual files first with timeout and error handling
+    print_status "Uploading individual files..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 ../app.py ../requirements.txt ../init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+        print_error "Failed to upload individual files"
+        exit 1
+    }
+    
+    # Upload directories separately with timeout and error handling
+    print_status "Uploading handlers directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../handlers/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+        print_error "Failed to upload handlers directory"
+        exit 1
+    }
+    
+    print_status "Uploading models directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../models/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+        print_error "Failed to upload models directory"
+        exit 1
+    }
+    
+    print_status "Uploading services directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../services/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+        print_error "Failed to upload services directory"
+        exit 1
+    }
     
     # Set up enhanced API server with monitoring
     ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$API_PUBLIC_IP" "
@@ -864,19 +889,54 @@ deploy_application_server() {
         ((attempt++))
     done
     
-    # Upload application server files
+    # Upload application server files with timeout and error handling
     print_status "Uploading modern dashboard and configuration files..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ../docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r ../nginx/ ec2-user@"$APP_PUBLIC_IP":~/
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 ../docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml || {
+        print_error "Failed to upload docker-compose.yml"
+        exit 1
+    }
+    
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../nginx/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload nginx directory"
+        exit 1
+    }
     
     # Upload missing Docker files and application code
     print_status "Uploading Docker files and application code..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no \
+    
+    # Upload individual files first with timeout
+    print_status "Uploading Docker and application files..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
         ../Dockerfile.dashboard ../Dockerfile.worker ../worker.py ../requirements.txt ../app.py ../init_db.py ../.env \
-        ec2-user@"$APP_PUBLIC_IP":~/
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r \
-        ../frontend/ ../services/ ../models/ ../handlers/ \
-        ec2-user@"$APP_PUBLIC_IP":~/
+        ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload Docker and application files"
+        exit 1
+    }
+    
+    # Upload directories separately to avoid transfer loops with timeout
+    print_status "Uploading frontend directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../frontend/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload frontend directory"
+        exit 1
+    }
+    
+    print_status "Uploading services directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../services/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload services directory"
+        exit 1
+    }
+    
+    print_status "Uploading models directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../models/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload models directory"
+        exit 1
+    }
+    
+    print_status "Uploading handlers directory..."
+    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../handlers/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+        print_error "Failed to upload handlers directory"
+        exit 1
+    }
     
     # Create modern React dashboard and enhanced backend
     ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
