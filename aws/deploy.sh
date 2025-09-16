@@ -8,7 +8,7 @@ set -e  # Exit on any error
 
 # Configuration
 STACK_NAME="schwab-api-stack"
-TEMPLATE_FILE="aws/cloudformation-template.yaml"
+TEMPLATE_FILE="cloudformation-template.yaml"
 KEY_PAIR_NAME="schwab-api-keypair"
 INSTANCE_TYPE="t3.small"
 ENVIRONMENT="production"
@@ -856,6 +856,15 @@ deploy_application_server() {
     print_status "Uploading modern dashboard and configuration files..."
     scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml
     scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r nginx/ ec2-user@"$APP_PUBLIC_IP":~/
+    
+    # Upload missing Docker files and application code
+    print_status "Uploading Docker files and application code..."
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no \
+        Dockerfile.dashboard Dockerfile.worker worker.py requirements.txt app.py init_db.py .env \
+        ec2-user@"$APP_PUBLIC_IP":~/
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r \
+        frontend/ services/ models/ handlers/ \
+        ec2-user@"$APP_PUBLIC_IP":~/
     
     # Create modern React dashboard and enhanced backend
     ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
