@@ -1,0 +1,142 @@
+.App {
+  text-align: center;
+}
+
+.site-layout {
+  margin-left: 200px;
+}
+
+.site-layout-background {
+  background: #fff;
+}
+
+.logo {
+  height: 32px;
+  margin: 16px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.dashboard-header {
+  margin-bottom: 24px;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  color: #1890ff;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.metrics-grid {
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  text-align: center;
+  padding: 20px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.metric-label {
+  color: #666;
+  font-size: 14px;
+}
+
+.positive {
+  color: #52c41a;
+}
+
+.negative {
+  color: #ff4d4f;
+}
+
+.neutral {
+  color: #1890ff;
+}
+
+.chart-container {
+  height: 300px;
+  margin: 20px 0;
+}
+
+.alert-item {
+  padding: 12px;
+  border-left: 4px solid #1890ff;
+  margin-bottom: 8px;
+  background: #f6ffed;
+}
+
+.alert-item.warning {
+  border-left-color: #faad14;
+  background: #fffbe6;
+}
+
+.alert-item.error {
+  border-left-color: #ff4d4f;
+  background: #fff2f0;
+}
+
+.watchlist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.watchlist-item:last-child {
+  border-bottom: none;
+}
+
+.symbol {
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.price {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.change {
+  font-size: 14px;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.error-message {
+  color: #ff4d4f;
+  text-align: center;
+  padding: 20px;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 6px;
+  margin: 20px 0;
+}
+
+.success-message {
+  color: #52c41a;
+  text-align: center;
+  padding: 20px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 6px;
+  margin: 20px 0;
+}
