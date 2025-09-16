@@ -691,7 +691,7 @@ deploy_api_server() {
     
     # Deploy API server code with enhancements
     print_status "Uploading enhanced API server files..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r app.py requirements.txt handlers/ models/ services/ init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r ../app.py ../requirements.txt ../handlers/ ../models/ ../services/ ../init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/
     
     # Set up enhanced API server with monitoring
     ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$API_PUBLIC_IP" "
@@ -854,16 +854,16 @@ deploy_application_server() {
     
     # Upload application server files
     print_status "Uploading modern dashboard and configuration files..."
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml
-    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r nginx/ ec2-user@"$APP_PUBLIC_IP":~/
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ../docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r ../nginx/ ec2-user@"$APP_PUBLIC_IP":~/
     
     # Upload missing Docker files and application code
     print_status "Uploading Docker files and application code..."
     scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no \
-        Dockerfile.dashboard Dockerfile.worker worker.py requirements.txt app.py init_db.py .env \
+        ../Dockerfile.dashboard ../Dockerfile.worker ../worker.py ../requirements.txt ../app.py ../init_db.py ../.env \
         ec2-user@"$APP_PUBLIC_IP":~/
     scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -r \
-        frontend/ services/ models/ handlers/ \
+        ../frontend/ ../services/ ../models/ ../handlers/ \
         ec2-user@"$APP_PUBLIC_IP":~/
     
     # Create modern React dashboard and enhanced backend
