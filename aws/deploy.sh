@@ -434,6 +434,17 @@ collect_schwab_credentials() {
 update_secrets_manager() {
     print_milestone "Updating AWS Secrets Manager with all credentials and trading dashboard configuration..."
     
+    # Generate secure passwords for database and services
+    print_status "Generating secure passwords for database and services..."
+    POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
+    REDIS_PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-20)
+    JWT_SECRET=$(openssl rand -base64 32)
+    SESSION_SECRET=$(openssl rand -base64 32)
+    ENCRYPTION_KEY=$(openssl rand -base64 32)
+    NEXTAUTH_SECRET=$(openssl rand -base64 32)
+    
+    print_success "Generated secure passwords for all services"
+    
     # Create comprehensive secret with all credentials and trading dashboard settings
     SECRET_VALUE=$(cat <<EOF
 {
@@ -460,11 +471,12 @@ update_secrets_manager() {
   "enable_email_notifications": "${ENABLE_EMAIL_NOTIFICATIONS:-y}",
   "enable_slack_notifications": "${ENABLE_SLACK_NOTIFICATIONS:-n}",
   "enable_telegram_notifications": "${ENABLE_TELEGRAM_NOTIFICATIONS:-n}",
-  "jwt_secret": "$(openssl rand -base64 32)",
-  "session_secret": "$(openssl rand -base64 32)",
-  "db_password": "$(openssl rand -base64 16)",
-  "redis_password": "$(openssl rand -base64 16)",
-  "encryption_key": "$(openssl rand -base64 32)"
+  "postgres_password": "$POSTGRES_PASSWORD",
+  "redis_password": "$REDIS_PASSWORD",
+  "jwt_secret": "$JWT_SECRET",
+  "session_secret": "$SESSION_SECRET",
+  "nextauth_secret": "$NEXTAUTH_SECRET",
+  "encryption_key": "$ENCRYPTION_KEY"
 }
 EOF
 )
@@ -1362,22 +1374,22 @@ if __name__ == '__main__':
     main()
 EOF
         
-        # Create comprehensive environment file with all configurations
+        # Create comprehensive environment file with generated passwords
         cat > .env << EOF
 # Database Configuration
-DB_PASSWORD=\$(openssl rand -base64 16)
+DB_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=schwab_trading
 POSTGRES_USER=schwab_user
-POSTGRES_PASSWORD=\$(openssl rand -base64 16)
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 # Redis Configuration
-REDIS_PASSWORD=\$(openssl rand -base64 16)
+REDIS_PASSWORD=$REDIS_PASSWORD
 
 # Application Configuration
 NODE_ENV=production
 API_BASE_URL=http://$API_PRIVATE_IP:8080
-DATABASE_URL=postgresql://schwab_user:\$(openssl rand -base64 16)@postgres:5432/schwab_trading
-REDIS_URL=redis://:\$(openssl rand -base64 16)@redis:6379
+DATABASE_URL=postgresql://schwab_user:$POSTGRES_PASSWORD@postgres:5432/schwab_trading
+REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379
 
 # Domain and SSL
 DOMAIN=$DOMAIN_NAME
@@ -1385,22 +1397,44 @@ EMAIL=$ADMIN_EMAIL
 
 # NextAuth Configuration
 NEXTAUTH_URL=https://$DOMAIN_NAME
-NEXTAUTH_SECRET=\$(openssl rand -base64 32)
+NEXTAUTH_SECRET=$NEXTAUTH_SECRET
 
 # Google SSO
 GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+
+# Schwab API Configuration
+SCHWAB_CLIENT_ID=$SCHWAB_CLIENT_ID
+SCHWAB_CLIENT_SECRET=$SCHWAB_CLIENT_SECRET
+SCHWAB_CALLBACK_URL=$SCHWAB_CALLBACK_URL
 
 # Notification Configuration
 NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-$ADMIN_EMAIL}
 SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
 
 # SMTP Configuration (for email alerts)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
+SMTP_SERVER=${SMTP_SERVER:-smtp.gmail.com}
+SMTP_PORT=${SMTP_PORT:-587}
 SMTP_FROM=alerts@$DOMAIN_NAME
-SMTP_USER=${NOTIFICATION_EMAIL:-$ADMIN_EMAIL}
-SMTP_PASS=your_app_password_here
+SMTP_USER=${SMTP_USERNAME:-$NOTIFICATION_EMAIL}
+SMTP_PASS=${SMTP_PASSWORD:-}
+
+# Trading Alert Thresholds
+DAILY_LOSS_LIMIT=${DAILY_LOSS_LIMIT:-1000}
+TOTAL_LOSS_LIMIT=${TOTAL_LOSS_LIMIT:-5000}
+VOLATILITY_THRESHOLD=${VOLATILITY_THRESHOLD:-10}
+MARGIN_THRESHOLD=${MARGIN_THRESHOLD:-80}
+ALERT_CHECK_INTERVAL=${ALERT_CHECK_INTERVAL:-30}
+
+# Security
+JWT_SECRET=$JWT_SECRET
+SESSION_SECRET=$SESSION_SECRET
+ENCRYPTION_KEY=$ENCRYPTION_KEY
+
+# Flask Configuration
+FLASK_ENV=production
+FLASK_DEBUG=False
+SECRET_KEY=$SESSION_SECRET
 
 # Monitoring
 PROMETHEUS_PORT=9090
