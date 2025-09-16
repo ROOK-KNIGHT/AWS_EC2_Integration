@@ -704,28 +704,28 @@ deploy_api_server() {
     # Deploy API server code with enhancements
     print_status "Uploading enhanced API server files..."
     
-    # Upload individual files first with timeout and error handling
+    # Upload individual files first with error handling
     print_status "Uploading individual files..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 ../app.py ../requirements.txt ../init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 ../app.py ../requirements.txt ../init_db.py ec2-user@"$API_PUBLIC_IP":/tmp/ || {
         print_error "Failed to upload individual files"
         exit 1
     }
     
-    # Upload directories separately with timeout and error handling
+    # Upload directories separately with error handling
     print_status "Uploading handlers directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../handlers/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../handlers/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
         print_error "Failed to upload handlers directory"
         exit 1
     }
     
     print_status "Uploading models directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../models/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../models/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
         print_error "Failed to upload models directory"
         exit 1
     }
     
     print_status "Uploading services directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../services/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../services/ ec2-user@"$API_PUBLIC_IP":/tmp/ || {
         print_error "Failed to upload services directory"
         exit 1
     }
@@ -889,14 +889,14 @@ deploy_application_server() {
         ((attempt++))
     done
     
-    # Upload application server files with timeout and error handling
+    # Upload application server files with error handling
     print_status "Uploading modern dashboard and configuration files..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 ../docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 ../docker-compose.app.yml ec2-user@"$APP_PUBLIC_IP":~/docker-compose.yml || {
         print_error "Failed to upload docker-compose.yml"
         exit 1
     }
     
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../nginx/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../nginx/ ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload nginx directory"
         exit 1
     }
@@ -904,36 +904,60 @@ deploy_application_server() {
     # Upload missing Docker files and application code
     print_status "Uploading Docker files and application code..."
     
-    # Upload individual files first with timeout
+    # Upload individual files first with error handling
     print_status "Uploading Docker and application files..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 \
         ../Dockerfile.dashboard ../Dockerfile.worker ../worker.py ../requirements.txt ../app.py ../init_db.py ../.env \
         ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload Docker and application files"
         exit 1
     }
     
-    # Upload directories separately to avoid transfer loops with timeout
-    print_status "Uploading frontend directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../frontend/ ec2-user@"$APP_PUBLIC_IP":~/ || {
-        print_error "Failed to upload frontend directory"
-        exit 1
+    # Upload frontend source files only (exclude node_modules)
+    print_status "Uploading frontend source files (excluding node_modules)..."
+    
+    # Create frontend directory structure on server first
+    ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$APP_PUBLIC_IP" "mkdir -p ~/frontend/{src,public}"
+    
+    # Upload only essential frontend files (no node_modules)
+    if [ -d "../frontend/src" ]; then
+        scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../frontend/src/ ec2-user@"$APP_PUBLIC_IP":~/frontend/ || {
+            print_error "Failed to upload frontend src directory"
+            exit 1
+        }
+    fi
+    
+    if [ -d "../frontend/public" ]; then
+        scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../frontend/public/ ec2-user@"$APP_PUBLIC_IP":~/frontend/ || {
+            print_error "Failed to upload frontend public directory"
+            exit 1
+        }
+    fi
+    
+    # Upload frontend config files
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 \
+        ../frontend/package.json ../frontend/package-lock.json ec2-user@"$APP_PUBLIC_IP":~/frontend/ 2>/dev/null || {
+        print_warning "Some frontend config files not found, will create defaults"
     }
     
+    # Upload Next.js config files if they exist
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 \
+        ../frontend/next.config.js ../frontend/tailwind.config.js ec2-user@"$APP_PUBLIC_IP":~/frontend/ 2>/dev/null || true
+    
     print_status "Uploading services directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../services/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../services/ ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload services directory"
         exit 1
     }
     
     print_status "Uploading models directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../models/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../models/ ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload models directory"
         exit 1
     }
     
     print_status "Uploading handlers directory..."
-    timeout 300 scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -r ../handlers/ ec2-user@"$APP_PUBLIC_IP":~/ || {
+    scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 -r ../handlers/ ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload handlers directory"
         exit 1
     }
@@ -1502,8 +1526,8 @@ GRAFANA_PORT=3001
 EOF
     "
     
-    # Install Docker and Docker Compose
-    print_status "Installing Docker and Docker Compose..."
+    # Install Docker, Docker Compose, and Node.js
+    print_status "Installing Docker, Docker Compose, and Node.js..."
     ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
         sudo yum update -y
         sudo yum install -y docker
@@ -1514,6 +1538,18 @@ EOF
         # Install Docker Compose
         sudo curl -L https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
         sudo chmod +x /usr/local/bin/docker-compose
+        
+        # Install Node.js 18.x for frontend dependencies
+        curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+        sudo yum install -y nodejs
+        
+        # Install frontend dependencies if frontend directory exists
+        if [ -d 'frontend' ]; then
+            cd frontend
+            print_status 'Installing frontend dependencies on server...'
+            npm install --production --no-optional
+            cd ..
+        fi
     "
     
     print_success "Modern dashboard and application server deployed"
