@@ -907,7 +907,7 @@ deploy_application_server() {
     # Upload individual files first with error handling
     print_status "Uploading Docker and application files..."
     scp -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60 \
-        ../Dockerfile.dashboard ../Dockerfile.worker ../worker.py ../requirements.txt ../app.py ../init_db.py ../.env \
+        ../Dockerfile.dashboard ../Dockerfile.worker ../worker.py ../requirements.txt ../app.py ../init_db.py \
         ec2-user@"$APP_PUBLIC_IP":~/ || {
         print_error "Failed to upload Docker and application files"
         exit 1
