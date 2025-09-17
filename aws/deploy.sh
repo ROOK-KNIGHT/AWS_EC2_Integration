@@ -1559,10 +1559,12 @@ EOF
 setup_ssl_certificates() {
     print_milestone "Setting up SSL certificates with Let's Encrypt..."
     
-    # Update nginx configuration for SSL
+    # Check if SSL certificates were generated successfully
     ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
-        # Create SSL-ready nginx configuration
-        cat > nginx/sites-available/schwabapi.conf << 'EOF'
+        if [ -f '/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem' ]; then
+            print_status 'SSL certificates found, configuring HTTPS...'
+            # Create SSL-ready nginx configuration
+            cat > nginx/sites-available/schwabapi.conf << 'EOF'
 # HTTP server - redirects to HTTPS and handles Let's Encrypt challenges
 server {
     listen 80;
@@ -1688,6 +1690,139 @@ server {
         access_log off;
         log_not_found off;
     }
+}
+EOF
+        else
+            print_warning 'SSL certificates not found, configuring HTTP-only mode...'
+            # Create HTTP-only nginx configuration
+            cat > nginx/sites-available/schwabapi.conf << 'EOF'
+# HTTP-only configuration for initial setup
+server {
+    listen 80;
+    server_name $DOMAIN_NAME $APP_PUBLIC_IP;
+
+    # Rate limiting
+    limit_req zone=api burst=20 nodelay;
+
+    # Main dashboard/frontend
+    location / {
+        proxy_pass http://dashboard:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # API routes - proxy to API server
+    location /api/ {
+        # Proxy to API server
+        proxy_pass http://$API_PRIVATE_IP:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # API-specific timeouts
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+        
+        # CORS headers for API
+        add_header Access-Control-Allow-Origin \"*\" always;
+        add_header Access-Control-Allow-Methods \"GET, POST, PUT, DELETE, OPTIONS\" always;
+        add_header Access-Control-Allow-Headers \"Authorization, Content-Type, X-Requested-With\" always;
+        add_header Access-Control-Allow-Credentials true always;
+        
+        # Handle preflight requests
+        if (\$request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin \"*\";
+            add_header Access-Control-Allow-Methods \"GET, POST, PUT, DELETE, OPTIONS\";
+            add_header Access-Control-Allow-Headers \"Authorization, Content-Type, X-Requested-With\";
+            add_header Access-Control-Allow-Credentials true;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+
+    # Health check endpoint
+    location /health {
+        proxy_pass http://dashboard:3000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        access_log off;
+    }
+
+    # Static assets with caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass http://dashboard:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        
+        # Cache static assets
+        expires 1y;
+        add_header Cache-Control \"public, immutable\";
+        add_header X-Content-Type-Options nosniff;
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    location ~ ~$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+        fi
+        
+        # Update nginx.conf to use the correct configuration
+        cat > nginx/nginx.conf << 'EOF'
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '\$remote_addr - \$remote_user [\$time_local] \"\$request\" '
+                    '\$status \$body_bytes_sent \"\$http_referer\" '
+                    '\"\$http_user_agent\" \"\$http_x_forwarded_for\"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    # Rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+
+    # Include the configuration
+    include /etc/nginx/sites-available/schwabapi.conf;
 }
 EOF
     "
