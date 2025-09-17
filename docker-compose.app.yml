@@ -13,6 +13,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/sites-available:/etc/nginx/sites-available:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/webroot:/var/www/certbot
       - ./logs/nginx:/var/log/nginx
     depends_on:
       - dashboard
@@ -111,7 +112,7 @@ services:
     volumes:
       - ./nginx/ssl:/etc/letsencrypt
       - ./nginx/webroot:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@eduardomenck.com --agree-tos --no-eff-email -d schwabapi.eduardomenck.com
+    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@imart.com --agree-tos --no-eff-email -d schwabapi.imart.com
     networks:
       - schwab-network
 
