@@ -1561,7 +1561,11 @@ setup_ssl_certificates() {
     
     # Check if SSL certificates were generated successfully
     ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
-        if [ -f '/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem' ]; then
+        # First, check if certbot container ran and what the result was
+        if docker-compose logs certbot 2>/dev/null | grep -q 'Certificate Authority failed\|Some challenges have failed\|Timeout during connect'; then
+            print_warning 'SSL certificate generation failed, configuring HTTP-only mode...'
+            SSL_FAILED=true
+        elif [ -f '/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem' ]; then
             print_status 'SSL certificates found, configuring HTTPS...'
             # Create SSL-ready nginx configuration
             cat > nginx/sites-available/schwabapi.conf << 'EOF'
