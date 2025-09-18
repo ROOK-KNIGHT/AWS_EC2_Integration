@@ -429,4 +429,4 @@ Outputs:
 
   DomainSetupInstructions:
     Description: Instructions for setting up the domain
-    Value: !Sub 'Point schwabapi.imart.com A record to: ${ElasticIP}'
+    Value: !Sub 'Point schwabapi.isaaccmartinez.com A record to: ${ElasticIP}'

@@ -112,7 +112,7 @@ services:
     volumes:
       - ./nginx/ssl:/etc/letsencrypt
       - ./nginx/webroot:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@imart.com --agree-tos --no-eff-email -d schwabapi.imart.com
+    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@isaaccmartinez.com --agree-tos --no-eff-email -d schwabapi.isaaccmartinez.com
     networks:
       - schwab-network
 

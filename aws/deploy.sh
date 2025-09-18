@@ -196,10 +196,10 @@ collect_domain_config() {
     
     # Domain name
     while [[ -z "$DOMAIN_NAME" ]]; do
-        echo -n "Enter your domain name [default: schwabapi.imart.com]: "
+        echo -n "Enter your domain name [default: schwabapi.isaaccmartinez.com]: "
         read DOMAIN_NAME
         if [[ -z "$DOMAIN_NAME" ]]; then
-            DOMAIN_NAME="schwabapi.imart.com"
+            DOMAIN_NAME="schwabapi.isaaccmartinez.com"
             print_status "Using default domain: $DOMAIN_NAME"
         fi
     done
