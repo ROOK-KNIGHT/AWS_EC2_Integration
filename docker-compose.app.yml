@@ -12,7 +12,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/sites-available:/etc/nginx/sites-available:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/ssl:/etc/letsencrypt:ro
       - ./nginx/webroot:/var/www/certbot
       - ./logs/nginx:/var/log/nginx
     depends_on:
@@ -112,9 +112,27 @@ services:
     volumes:
       - ./nginx/ssl:/etc/letsencrypt
       - ./nginx/webroot:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email admin@isaaccmartinez.com --agree-tos --no-eff-email -d schwabapi.isaaccmartinez.com
+    # This will be overridden by the deploy script for initial certificate generation
+    command: renew --quiet
     networks:
       - schwab-network
+    depends_on:
+      - nginx
+
+  # Certificate renewal service (runs daily)
+  certbot-renew:
+    image: certbot/certbot
+    container_name: schwab-certbot-renew
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt
+      - ./nginx/webroot:/var/www/certbot
+    command: sh -c "while :; do sleep 24h; certbot renew --quiet && nginx -s reload; done"
+    networks:
+      - schwab-network
+    depends_on:
+      - nginx
+      - certbot
+    restart: unless-stopped
 
 networks:
   schwab-network:

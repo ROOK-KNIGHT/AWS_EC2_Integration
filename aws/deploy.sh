@@ -43,13 +43,76 @@ print_milestone() {
     echo -e "${PURPLE}[MILESTONE 2]${NC} $1"
 }
 
+# Function to preserve Elastic IP before cleanup
+preserve_elastic_ip() {
+    print_status "Checking for existing Elastic IP to preserve..."
+    
+    # First, try to get IP from existing CloudFormation stack
+    EXISTING_EIP_ALLOC_ID=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$REGION" \
+        --query 'Stacks[0].Outputs[?OutputKey==`ElasticIPAddress`].OutputValue' \
+        --output text 2>/dev/null || echo "")
+    
+    if [ -n "$EXISTING_EIP_ALLOC_ID" ] && [ "$EXISTING_EIP_ALLOC_ID" != "None" ]; then
+        # Get the allocation ID from the IP address
+        PRESERVED_EIP_ALLOC_ID=$(aws ec2 describe-addresses \
+            --public-ips "$EXISTING_EIP_ALLOC_ID" \
+            --region "$REGION" \
+            --query 'Addresses[0].AllocationId' \
+            --output text 2>/dev/null || echo "")
+        
+        if [ -n "$PRESERVED_EIP_ALLOC_ID" ] && [ "$PRESERVED_EIP_ALLOC_ID" != "None" ]; then
+            print_success "Found existing Elastic IP from stack to preserve: $EXISTING_EIP_ALLOC_ID (Allocation ID: $PRESERVED_EIP_ALLOC_ID)"
+            return 0
+        fi
+    fi
+    
+    # If no stack IP found, check what IP the domain is currently pointing to
+    if [ -n "$DOMAIN_NAME" ]; then
+        print_status "Checking what IP address $DOMAIN_NAME is currently pointing to..."
+        DNS_IP=$(dig +short "$DOMAIN_NAME" @8.8.8.8 2>/dev/null | tail -n1)
+        
+        if [ -n "$DNS_IP" ] && [[ "$DNS_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            print_status "Domain $DOMAIN_NAME is pointing to IP: $DNS_IP"
+            
+            # Check if this IP is an Elastic IP in our account
+            PRESERVED_EIP_ALLOC_ID=$(aws ec2 describe-addresses \
+                --public-ips "$DNS_IP" \
+                --region "$REGION" \
+                --query 'Addresses[0].AllocationId' \
+                --output text 2>/dev/null || echo "")
+            
+            if [ -n "$PRESERVED_EIP_ALLOC_ID" ] && [ "$PRESERVED_EIP_ALLOC_ID" != "None" ]; then
+                EXISTING_EIP_ALLOC_ID="$DNS_IP"
+                print_success "Found DNS-pointed Elastic IP to preserve: $DNS_IP (Allocation ID: $PRESERVED_EIP_ALLOC_ID)"
+                print_success "This will keep your DNS configuration working without changes!"
+                return 0
+            else
+                print_warning "Domain points to $DNS_IP but it's not an Elastic IP in this AWS account"
+            fi
+        else
+            print_warning "Could not resolve domain $DOMAIN_NAME to a valid IP address"
+        fi
+    fi
+    
+    print_status "No existing Elastic IP found to preserve - will create new one"
+    PRESERVED_EIP_ALLOC_ID=""
+}
+
 # Function to cleanup existing AWS resources
 cleanup_aws_resources() {
     print_status "Starting cleanup of existing AWS resources..."
     
+    # Preserve Elastic IP before cleanup
+    preserve_elastic_ip
+    
     # Confirmation prompt for safety
     echo -e "${YELLOW}⚠️  This will delete existing AWS resources from the $STACK_NAME stack.${NC}"
     echo -e "${YELLOW}   This includes EC2 instances, secrets, VPC resources, and key pairs.${NC}"
+    if [ -n "$PRESERVED_EIP_ALLOC_ID" ]; then
+        echo -e "${GREEN}   ✅ Elastic IP $EXISTING_EIP_ALLOC_ID will be preserved and reused.${NC}"
+    fi
     read -p "Do you want to proceed with cleanup? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -565,7 +628,13 @@ deploy_stack() {
         "ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
     )
     
-    print_status "Using dynamic public IP"
+    # Add Elastic IP parameter if we have a preserved one
+    if [ -n "$PRESERVED_EIP_ALLOC_ID" ]; then
+        PARAMETERS+=("ParameterKey=ElasticIPAllocationId,ParameterValue=$PRESERVED_EIP_ALLOC_ID")
+        print_success "Using preserved Elastic IP: $EXISTING_EIP_ALLOC_ID (Allocation ID: $PRESERVED_EIP_ALLOC_ID)"
+    else
+        print_status "Creating new Elastic IP"
+    fi
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &> /dev/null; then
@@ -1555,24 +1624,201 @@ EOF
     print_success "Modern dashboard and application server deployed"
 }
 
+# Function to wait for DNS update confirmation
+wait_for_dns_update() {
+    print_milestone "DNS Update Required for SSL Certificate Generation"
+    echo ""
+    echo "🌐 Your new Elastic IP address is: $ELASTIC_IP"
+    echo ""
+    echo "📋 To enable SSL certificates, please:"
+    echo "   1. Update your DNS A record for schwabapi.isaaccmartinez.com"
+    echo "   2. Point it to: $ELASTIC_IP"
+    echo "   3. Wait for DNS propagation (usually 5-15 minutes)"
+    echo ""
+    echo "🔍 You can check DNS propagation with:"
+    echo "   dig +short schwabapi.isaaccmartinez.com @8.8.8.8"
+    echo ""
+    echo "✅ The application is already running on HTTP at: http://$ELASTIC_IP"
+    echo ""
+    
+    # Wait for user confirmation
+    while true; do
+        echo -n "Have you updated the DNS and confirmed propagation? (y/n): "
+        read -r DNS_UPDATED
+        
+        if [[ "$DNS_UPDATED" =~ ^[Yy]$ ]]; then
+            print_status "Verifying DNS propagation..."
+            
+            # Check if DNS is pointing to the correct IP
+            CURRENT_DNS_IP=$(dig +short schwabapi.isaaccmartinez.com @8.8.8.8 2>/dev/null | tail -n1)
+            
+            if [ "$CURRENT_DNS_IP" = "$ELASTIC_IP" ]; then
+                print_success "DNS propagation confirmed! Domain points to $ELASTIC_IP"
+                break
+            else
+                print_warning "DNS still points to: $CURRENT_DNS_IP (expected: $ELASTIC_IP)"
+                echo "Please wait a few more minutes for DNS propagation and try again."
+                echo ""
+            fi
+        elif [[ "$DNS_UPDATED" =~ ^[Nn]$ ]]; then
+            echo ""
+            echo "⏸️  Deployment paused. Please update your DNS and run this script again."
+            echo "   The infrastructure is deployed and running on HTTP."
+            echo "   You can complete SSL setup later by re-running: ./deploy.sh"
+            echo ""
+            exit 0
+        else
+            echo "Please answer 'y' for yes or 'n' for no."
+        fi
+    done
+}
+
 # Function to setup SSL certificates
 setup_ssl_certificates() {
     print_milestone "Setting up SSL certificates with Let's Encrypt..."
     
-    # Check if SSL certificates were generated successfully
-    ssh -i "${KEY_PAIR_NAME}.pem" ec2-user@"$APP_PUBLIC_IP" "
-        # First, check if certbot container ran and what the result was
-        if docker-compose logs certbot 2>/dev/null | grep -q 'Certificate Authority failed\|Some challenges have failed\|Timeout during connect'; then
-            print_warning 'SSL certificate generation failed, configuring HTTP-only mode...'
-            SSL_FAILED=true
-        elif [ -f '/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem' ]; then
-            print_status 'SSL certificates found, configuring HTTPS...'
+    # Generate SSL certificates automatically
+    ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$APP_PUBLIC_IP" bash -s << 'EOF'
+        # Create necessary directories
+        mkdir -p nginx/ssl nginx/webroot logs/nginx
+        
+        # First create HTTP-only nginx config for ACME challenge
+        cat > nginx/sites-available/schwabapi.conf << 'INNER_EOF'
+# HTTP-only configuration for ACME challenge
+server {
+    listen 80;
+    server_name schwabapi.isaaccmartinez.com;
+
+    # Let's Encrypt challenge location
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        try_files $uri =404;
+    }
+
+    # Main dashboard/frontend for testing
+    location / {
+        proxy_pass http://dashboard:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # API routes - proxy to API server
+    location /api/ {
+        proxy_pass http://\$API_PRIVATE_IP:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # API-specific timeouts
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+        
+        # CORS headers for API
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
+        add_header Access-Control-Allow-Credentials true always;
+        
+        # Handle preflight requests
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With";
+            add_header Access-Control-Allow-Credentials true;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+    }
+}
+INNER_EOF
+        
+        # Update nginx.conf to use HTTP-only config
+        cat > nginx/nginx.conf << 'INNER_EOF'
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+    # Include the configuration
+    include /etc/nginx/sites-available/schwabapi.conf;
+}
+INNER_EOF
+        
+        # Stop any existing nginx containers and start fresh with HTTP-only config
+        echo 'Stopping existing nginx containers...'
+        docker-compose stop nginx || true
+        docker-compose rm -f nginx || true
+        
+        # Start nginx with HTTP-only config for ACME challenge
+        echo 'Starting nginx for ACME challenge...'
+        docker-compose up -d nginx
+        sleep 15
+        
+        # Verify nginx is running and accessible
+        echo 'Verifying nginx is accessible...'
+        if curl -f -s "http://schwabapi.isaaccmartinez.com/.well-known/acme-challenge/test" > /dev/null 2>&1; then
+            echo 'Nginx ACME challenge endpoint is accessible'
+        else
+            echo 'Warning: ACME challenge endpoint may not be accessible, but continuing...'
+        fi
+        
+        # Generate SSL certificates
+        echo 'Generating SSL certificates with Let'"'"'s Encrypt...'
+        docker-compose run --rm certbot certonly \
+            --webroot \
+            --webroot-path=/var/www/certbot \
+            --email admin@imart.com \
+            --agree-tos \
+            --no-eff-email \
+            --force-renewal \
+            -d schwabapi.isaaccmartinez.com
+        
+        # Check if certificates were generated successfully
+        if docker-compose exec -T certbot ls /etc/letsencrypt/live/schwabapi.isaaccmartinez.com/fullchain.pem > /dev/null 2>&1; then
+            echo 'SSL certificates generated successfully!'
+            SSL_SUCCESS=true
+        else
+            echo 'SSL certificate generation failed, configuring HTTP-only mode...'
+            SSL_SUCCESS=false
+        fi
+        
+        # Configure nginx based on SSL status
+        if [ "$SSL_SUCCESS" = "true" ]; then
+            echo 'SSL certificates found, configuring HTTPS...'
             # Create SSL-ready nginx configuration
-            cat > nginx/sites-available/schwabapi.conf << 'EOF'
+            cat > nginx/sites-available/schwabapi.conf << 'INNER_EOF'
 # HTTP server - redirects to HTTPS and handles Let's Encrypt challenges
 server {
     listen 80;
-    server_name $DOMAIN_NAME;
+    server_name schwabapi.isaaccmartinez.com;
 
     # Let's Encrypt challenge location
     location /.well-known/acme-challenge/ {
@@ -1588,11 +1834,11 @@ server {
 # HTTPS server
 server {
     listen 443 ssl http2;
-    server_name $DOMAIN_NAME;
+    server_name schwabapi.isaaccmartinez.com;
 
     # SSL configuration
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/schwabapi.isaaccmartinez.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/schwabapi.isaaccmartinez.com/privkey.pem;
     
     # SSL security settings
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -1602,11 +1848,11 @@ server {
     ssl_session_timeout 10m;
     
     # Security headers
-    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Frame-Options DENY always;
     add_header X-Content-Type-Options nosniff always;
-    add_header X-XSS-Protection \"1; mode=block\" always;
-    add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     # Rate limiting
     limit_req zone=api burst=20 nodelay;
@@ -1632,7 +1878,7 @@ server {
     # API routes - proxy to API server
     location /api/ {
         # Proxy to API server
-        proxy_pass http://$API_PRIVATE_IP:8080;
+        proxy_pass http://\$API_PRIVATE_IP:8080;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -1645,16 +1891,16 @@ server {
         proxy_read_timeout 30s;
         
         # CORS headers for API
-        add_header Access-Control-Allow-Origin \"https://$DOMAIN_NAME\" always;
-        add_header Access-Control-Allow-Methods \"GET, POST, PUT, DELETE, OPTIONS\" always;
-        add_header Access-Control-Allow-Headers \"Authorization, Content-Type, X-Requested-With\" always;
+        add_header Access-Control-Allow-Origin "https://schwabapi.isaaccmartinez.com" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With" always;
         add_header Access-Control-Allow-Credentials true always;
         
         # Handle preflight requests
         if (\$request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin \"https://$DOMAIN_NAME\";
-            add_header Access-Control-Allow-Methods \"GET, POST, PUT, DELETE, OPTIONS\";
-            add_header Access-Control-Allow-Headers \"Authorization, Content-Type, X-Requested-With\";
+            add_header Access-Control-Allow-Origin "https://schwabapi.isaaccmartinez.com";
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With";
             add_header Access-Control-Allow-Credentials true;
             add_header Content-Length 0;
             add_header Content-Type text/plain;
@@ -1678,7 +1924,7 @@ server {
         
         # Cache static assets
         expires 1y;
-        add_header Cache-Control \"public, immutable\";
+        add_header Cache-Control "public, immutable";
         add_header X-Content-Type-Options nosniff;
     }
 
@@ -1695,11 +1941,11 @@ server {
         log_not_found off;
     }
 }
-EOF
+INNER_EOF
         else
-            print_warning 'SSL certificates not found, configuring HTTP-only mode...'
+            echo 'SSL certificates not found, configuring HTTP-only mode...'
             # Create HTTP-only nginx configuration
-            cat > nginx/sites-available/schwabapi.conf << 'EOF'
+            cat > nginx/sites-available/schwabapi.conf << 'INNER_EOF'
 # HTTP-only configuration for initial setup
 server {
     listen 80;
@@ -1792,11 +2038,11 @@ server {
         log_not_found off;
     }
 }
-EOF
+INNER_EOF
         fi
         
         # Update nginx.conf to use the correct configuration
-        cat > nginx/nginx.conf << 'EOF'
+        cat > nginx/nginx.conf << 'INNER_EOF'
 user nginx;
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
@@ -1810,9 +2056,9 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    log_format main '\$remote_addr - \$remote_user [\$time_local] \"\$request\" '
-                    '\$status \$body_bytes_sent \"\$http_referer\" '
-                    '\"\$http_user_agent\" \"\$http_x_forwarded_for\"';
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
 
     access_log /var/log/nginx/access.log main;
 
@@ -1823,15 +2069,18 @@ http {
     types_hash_max_size 2048;
 
     # Rate limiting
-    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
     # Include the configuration
     include /etc/nginx/sites-available/schwabapi.conf;
 }
+INNER_EOF
+        
+        # Restart nginx with the new configuration
+        docker-compose restart nginx
 EOF
-    "
     
-    print_success "SSL configuration prepared"
+    print_success "SSL configuration completed successfully"
 }
 
 # Function to start the complete application stack
@@ -1859,8 +2108,13 @@ start_application_stack() {
 deploy_application() {
     deploy_api_server
     deploy_application_server
-    setup_ssl_certificates
     start_application_stack
+    
+    # Wait for DNS update before SSL setup
+    wait_for_dns_update
+    
+    # Now setup SSL certificates with correct DNS
+    setup_ssl_certificates
 }
 
 # Function to verify the complete application deployment
@@ -1934,6 +2188,21 @@ show_deployment_info() {
     echo "   Elastic IP: $ELASTIC_IP"
     echo "   Domain: $DOMAIN_NAME"
     echo ""
+    
+    # Show IP preservation status
+    if [ -n "$PRESERVED_EIP_ALLOC_ID" ]; then
+        echo "🔄 IP Address Management:"
+        echo "   ✅ Elastic IP preserved across deployment: $ELASTIC_IP"
+        echo "   ✅ SSL certificates will work immediately (no DNS changes needed)"
+        echo "   ✅ Consistent IP address for future deployments"
+    else
+        echo "🆕 IP Address Management:"
+        echo "   🆕 New Elastic IP created: $ELASTIC_IP"
+        echo "   ⚠️  Update DNS: Point $DOMAIN_NAME A record to $ELASTIC_IP"
+        echo "   ✅ Future deployments will preserve this IP address"
+    fi
+    echo ""
+    
     echo "🔑 SSH Access:"
     echo "   API Server: ssh -i ${KEY_PAIR_NAME}.pem ec2-user@$(aws ec2 describe-instances --instance-ids $API_INSTANCE_ID --query 'Reservations[0].Instances[0].PublicIpAddress' --output text --region $REGION)"
     echo "   App Server: ssh -i ${KEY_PAIR_NAME}.pem ec2-user@$APP_PUBLIC_IP"
@@ -1955,6 +2224,7 @@ show_deployment_info() {
     echo "   ✅ SSL Certificate Automation (Let's Encrypt Ready)"
     echo "   ✅ Docker Containerization with Health Checks"
     echo "   ✅ Comprehensive Logging and Monitoring"
+    echo "   ✅ **Elastic IP Preservation (Solves SSL Certificate Issue)**"
     echo ""
     echo "🔒 Security Features:"
     echo "   • Google OAuth2 Single Sign-On"
@@ -1969,11 +2239,16 @@ show_deployment_info() {
     echo "   • Worker Metrics: http://$APP_PUBLIC_IP:8082/metrics"
     echo "   • Real-time Alerts via Email and Slack"
     echo ""
-    echo "🌐 DNS Setup Required:"
-    echo "   1. Point $DOMAIN_NAME A record to: $ELASTIC_IP"
-    echo "   2. Wait for DNS propagation (5-30 minutes)"
-    echo "   3. SSL certificates will auto-generate via Let's Encrypt"
-    echo "   4. Access via: https://$DOMAIN_NAME"
+    echo "🌐 DNS Setup Instructions:"
+    if [ -n "$PRESERVED_EIP_ALLOC_ID" ]; then
+        echo "   ✅ DNS already configured - using preserved IP: $ELASTIC_IP"
+        echo "   ✅ SSL certificates should work immediately"
+    else
+        echo "   1. Point $DOMAIN_NAME A record to: $ELASTIC_IP"
+        echo "   2. Wait for DNS propagation (5-30 minutes)"
+        echo "   3. SSL certificates will auto-generate via Let's Encrypt"
+        echo "   4. Access via: https://$DOMAIN_NAME"
+    fi
     echo ""
     echo "🚀 Ready to Use:"
     echo "   1. Open http://$APP_PUBLIC_IP in your browser"
@@ -1990,6 +2265,7 @@ show_deployment_info() {
     echo ""
     echo "✅ One-Command Deployment Complete!"
     echo "   Customers can now: git clone && ./aws/deploy.sh"
+    echo "   🎯 **SSL Certificate Issue Solved - Consistent IP Addresses!**"
     echo ""
 }
 

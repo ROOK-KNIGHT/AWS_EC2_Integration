@@ -391,10 +391,7 @@ Outputs:
 
   AppPublicIP:
     Description: Public IP address of the Application server (Elastic IP)
-    Value: !If 
-      - CreateNewElasticIP
-      - !Ref ElasticIP
-      - !Ref ElasticIPAllocationId
+    Value: !GetAtt AppInstance.PublicIp
     Export:
       Name: !Sub '${Environment}-schwab-app-public-ip'
 
@@ -406,10 +403,7 @@ Outputs:
 
   ElasticIPAddress:
     Description: Elastic IP address for the Application server
-    Value: !If 
-      - CreateNewElasticIP
-      - !Ref ElasticIP
-      - !Ref ElasticIPAllocationId
+    Value: !GetAtt AppInstance.PublicIp
     Export:
       Name: !Sub '${Environment}-schwab-app-elastic-ip'
 
@@ -429,4 +423,7 @@ Outputs:
 
   DomainSetupInstructions:
     Description: Instructions for setting up the domain
-    Value: !Sub 'Point schwabapi.isaaccmartinez.com A record to: ${ElasticIP}'
+    Value: !If 
+      - CreateNewElasticIP
+      - !Sub 'Point schwabapi.isaaccmartinez.com A record to: ${ElasticIP}'
+      - 'DNS already configured - using preserved Elastic IP'
