@@ -47,5 +47,12 @@ apscheduler>=3.8.0
 # JSON Web Tokens for authentication
 pyjwt>=2.3.0
 
+# Google OAuth2 authentication
+google-auth>=2.15.0
+google-auth-oauthlib>=0.8.0
+google-auth-httplib2>=0.1.0
+authlib>=1.2.0
+flask-session>=0.4.0
+
 # Configuration management
 pyyaml>=5.4.0
