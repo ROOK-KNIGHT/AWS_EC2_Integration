@@ -34,6 +34,7 @@ services:
       - API_BASE_URL=http://api-server:8080
       - DATABASE_URL=postgresql://schwab_user:${DB_PASSWORD:-secure_password}@postgres:5432/schwab_trading
       - REDIS_URL=redis://redis:6379
+      - DANGEROUSLY_DISABLE_HOST_CHECK=true
     env_file:
       - .env
     volumes:

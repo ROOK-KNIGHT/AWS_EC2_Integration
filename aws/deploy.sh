@@ -1677,12 +1677,12 @@ wait_for_dns_update() {
 setup_ssl_certificates() {
     print_milestone "Setting up SSL certificates with Let's Encrypt..."
     
-    # Generate SSL certificates automatically
-    ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$APP_PUBLIC_IP" bash -s << 'EOF'
+    # Generate SSL certificates automatically with dynamic API IP
+    ssh -i "${KEY_PAIR_NAME}.pem" -o StrictHostKeyChecking=no ec2-user@"$APP_PUBLIC_IP" bash -s << EOF
         # Create necessary directories
         mkdir -p nginx/ssl nginx/webroot logs/nginx
         
-        # First create HTTP-only nginx config for ACME challenge
+        # First create HTTP-only nginx config for ACME challenge with dynamic API IP
         cat > nginx/sites-available/schwabapi.conf << 'INNER_EOF'
 # HTTP-only configuration for ACME challenge
 server {
@@ -1692,20 +1692,20 @@ server {
     # Let's Encrypt challenge location
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
-        try_files $uri =404;
+        try_files \$uri =404;
     }
 
     # Main dashboard/frontend for testing
     location / {
         proxy_pass http://dashboard:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
         
         # Timeouts
         proxy_connect_timeout 60s;
@@ -1713,14 +1713,14 @@ server {
         proxy_read_timeout 60s;
     }
 
-    # API routes - proxy to API server
+    # API routes - proxy to API server with dynamic IP
     location /api/ {
-        proxy_pass http://\$API_PRIVATE_IP:8080;
+        proxy_pass http://$API_PRIVATE_IP:8080;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         
         # API-specific timeouts
         proxy_connect_timeout 30s;
@@ -1734,7 +1734,7 @@ server {
         add_header Access-Control-Allow-Credentials true always;
         
         # Handle preflight requests
-        if ($request_method = 'OPTIONS') {
+        if (\$request_method = 'OPTIONS') {
             add_header Access-Control-Allow-Origin "*";
             add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
             add_header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With";
@@ -1765,7 +1765,7 @@ http {
     keepalive_timeout 65;
 
     # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
 
     # Include the configuration
     include /etc/nginx/sites-available/schwabapi.conf;
@@ -1813,7 +1813,7 @@ INNER_EOF
         # Configure nginx based on SSL status
         if [ "$SSL_SUCCESS" = "true" ]; then
             echo 'SSL certificates found, configuring HTTPS...'
-            # Create SSL-ready nginx configuration
+            # Create SSL-ready nginx configuration with dynamic API IP
             cat > nginx/sites-available/schwabapi.conf << 'INNER_EOF'
 # HTTP server - redirects to HTTPS and handles Let's Encrypt challenges
 server {
@@ -1866,7 +1866,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_Set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
         
         # Timeouts
@@ -1875,10 +1875,10 @@ server {
         proxy_read_timeout 60s;
     }
 
-    # API routes - proxy to API server
+    # API routes - proxy to API server with dynamic IP
     location /api/ {
-        # Proxy to API server
-        proxy_pass http://\$API_PRIVATE_IP:8080;
+        # Proxy to API server with dynamic IP
+        proxy_pass http://$API_PRIVATE_IP:8080;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -2056,9 +2056,9 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
+    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                    '\$status \$body_bytes_sent "\$http_referer" '
+                    '"\$http_user_agent" "\$http_x_forwarded_for"';
 
     access_log /var/log/nginx/access.log main;
 
@@ -2069,7 +2069,7 @@ http {
     types_hash_max_size 2048;
 
     # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
 
     # Include the configuration
     include /etc/nginx/sites-available/schwabapi.conf;
