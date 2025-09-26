@@ -39,8 +39,8 @@ Authorized Redirect URIs:
 #### Environment Variables
 ```bash
 # Google OAuth2 Credentials
-GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # NextAuth Configuration
 NEXTAUTH_URL=https://schwabapi.isaaccmartinez.com
@@ -779,8 +779,8 @@ GOOGLE_CLIENT_SECRET=your-dev-client-secret
 # .env (production)
 NEXTAUTH_URL=https://schwabapi.isaaccmartinez.com
 NEXTAUTH_SECRET=production-secure-secret
-GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 ```
 
 ### Testing Authentication

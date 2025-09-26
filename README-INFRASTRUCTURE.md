@@ -232,11 +232,11 @@ Policies:
 ### Secret Structure: `production/schwab-api/credentials`
 ```json
 {
-  "schwab_client_id": "YOUR_SCHWAB_CLIENT_ID",
-  "schwab_client_secret": "YOUR_SCHWAB_CLIENT_SECRET",
+  "schwab_client_id": "your-schwab-client-id",
+  "schwab_client_secret": "your-schwab-client-secret",
   "schwab_callback_url": "https://schwabapi.isaaccmartinez.com/auth/schwab/callback",
-  "google_client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-  "google_client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
+  "google_client_id": "your-google-client-id.apps.googleusercontent.com",
+  "google_client_secret": "your-google-client-secret",
   "domain_name": "schwabapi.isaaccmartinez.com",
   "admin_email": "admin@imart.com",
   "notification_email": "admin@imart.com",
